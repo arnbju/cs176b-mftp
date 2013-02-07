@@ -15,3 +15,12 @@
 *.exe
 *.out
 *.app
+mftp
+
+# Temp files
+*.c~
+*.h~
+
+
+# Test folders
+testcode
