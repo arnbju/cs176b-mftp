@@ -26,7 +26,6 @@ void print_globalArgs(void){
 
 
 	printf("\n-------------- DEBUG -----------------\n");
-	printf("Version: %i\n", globalArgs.version);
 	printf("Filename: %s\n", globalArgs.filename);
 	printf("Hostname: %s\n", globalArgs.hostname);
 	printf("Portnr: %i\n", globalArgs.portnr);
@@ -36,6 +35,22 @@ void print_globalArgs(void){
 	printf("Mode: %s\n", globalArgs.mode);
 	printf("Logfile: %s\n", globalArgs.logfile);
 }
+
+int hostname_translation(char * hostname){
+	struct hostent *he;
+	struct in_addr **addr_list;
+		
+	if ( (he = gethostbyname( hostname ) ) == NULL) {
+		herror("gethostbyname");
+		return 1;
+	}
+
+	addr_list = (struct in_addr **) he->h_addr_list;
+
+	strcpy(hostname , inet_ntoa(*addr_list[0]) );
+	return 0;
+}
+
 
 int connect_to_server(int portnr){
 	int sockfd = 0, n = 0;
@@ -184,6 +199,7 @@ int main(int argc, char *argv[]) {
 
 	}
 
+	hostname_translation(globalArgs.hostname);
 	comm_socket = connect_to_server(globalArgs.portnr);
     
     if(authenticated = authenticate(comm_socket)){

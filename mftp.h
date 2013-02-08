@@ -12,6 +12,11 @@ arne@dahlbjune.no
 #include "netinet/in.h"
 #include "string.h"
 
+
+#include <errno.h> 
+#include <netdb.h>
+#include <arpa/inet.h>
+
 struct globalArgs_t {
 		char *filename;		// -f
 		char *hostname;		// -s
