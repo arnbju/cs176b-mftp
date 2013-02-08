@@ -5,43 +5,6 @@ arne@dahlbjune.no
 */
 
 #include "mftp.h"
-#include "unistd.h"
-#include "stdio.h"
-#include "stdlib.h"
-#include "getopt.h"
-#include <sys/socket.h>
-#include <netinet/in.h>
-
-//#include "string.h"
-
-struct globalArgs_t {
-		int version;		// -v
-		char *filename;		// -f
-		char *hostname;		// -s
-		int portnr;			// -p
-		char *username;		// -n
-		char *password;		// -P
-		int active;			// -a
-		char *mode;  		// -m 	
-		char *logfile;		// -l
-		
-} globalArgs;	
-
-static const char *optString = "hvf:s:p:n:P:am:l:";
-
-static const struct option longOptions[] = {
-	{"help", no_argument, NULL, 'h'},
-	{"version", no_argument, NULL, 'v'},
-	{"file", required_argument, NULL, 'f'},
-	{"hostname", required_argument, NULL, 's'},
-	{"port", required_argument, NULL, 'p'},
-	{"username", required_argument, NULL, 'n'},
-	{"password", required_argument, NULL, 'P'},
-	{"active", required_argument, NULL, 'a'},
-	{"mode", required_argument, NULL, 'm'},
-	{"logfile", required_argument, NULL, 'l'},
-	{NULL, no_argument, NULL, 0}
-};
 
 void display_version(void){
 	printf("mftp 0.1\n");
@@ -78,8 +41,7 @@ int connect_to_server(int portnr){
 	int sockfd = 0, n = 0;
 	struct sockaddr_in serv_addr;
 
-   if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    {
+   if((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         printf("\n Error : Could not create socket \n");
         return -1;
     } 
@@ -103,11 +65,64 @@ int connect_to_server(int portnr){
 	return sockfd;
 }
 
+int authenticate(int comm_socket){
+	
+	char recvBuffer[1024];
+	char sendBuffer[1025];
+	int n;
+
+    n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    printf("R: %s", recvBuffer);
+    
+    if(strncmp(recvBuffer,"220",3)==0){
+    	strcpy(sendBuffer, "USER ");
+		strcat(sendBuffer, globalArgs.username);
+    	strcat(sendBuffer,"\r\n");
+    	printf("S: %s", sendBuffer);
+    	write(comm_socket, sendBuffer, strlen(globalArgs.username) + 7);
+
+    }else{
+    	return -1;
+    }
+    
+    n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    printf("R: %s", recvBuffer);
+    
+    if(strncmp(recvBuffer,"331",3)==0){
+    	strcpy(sendBuffer, "PASS ");
+		strcat(sendBuffer, globalArgs.password);
+    	strcat(sendBuffer,"\r\n");
+    	printf("S: %s", sendBuffer);
+    	write(comm_socket, sendBuffer, strlen(globalArgs.password) + 7);
+
+    }else{
+    	return -1;
+    }
+    sleep(1);
+    n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    printf("R: %s", recvBuffer);
+    
+    if(strncmp(recvBuffer,"230",3)==0){
+    	
+    	return 0;
+
+    }else{
+    	return -1;
+    }
+    
+    
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
 
 	int opt = 0;
 	int longIndex;
 	int comm_socket;
+	int authenticated;
 	char *temp;
 	char recvBuffer[1024];
 	char sendBuffer[1024];
@@ -116,7 +131,6 @@ int main(int argc, char *argv[]) {
 	char *temptest; 
 
 	//Initializing default values
-	globalArgs.version = 0;		
 	globalArgs.filename = NULL;	
 	globalArgs.hostname = NULL;	
 	globalArgs.portnr = 21;		
@@ -135,12 +149,11 @@ int main(int argc, char *argv[]) {
 	while( opt != -1){
 		switch( opt){
 			case 'v':
-				globalArgs.version = 1;
 				display_version();
-				break;
+				return 0;
 			case 'h':
 				display_help();
-				break;
+				return 0;
 			case 'f':
 				globalArgs.filename = optarg;
 				break;
@@ -171,25 +184,40 @@ int main(int argc, char *argv[]) {
 
 	}
 
-	//comm_socket = connect_to_server(globalArgs.portnr);
+	comm_socket = connect_to_server(globalArgs.portnr);
     
-    /*
-    while ( n > 0){
-        n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
-        message = "USER ";
-        snprintf(sendBuffer, "%s %s\n",message,globalArgs.username);
-
-        write(comm_socket, sendBuffer, sizeof(sendBuffer));
-        //recvBuffer = recvBuffer + " kake";
-       	recvBuffer[n] = 0;
-        printf("%s", recvBuffer);
+    if(authenticated = authenticate(comm_socket)){
+    	printf("Authentification Failed \n");
+    	return -10;
+    }
+    
+    n = 1;
+/*
+	while ( n > 0){
         sleep(1);
-    } 
-	*/
-		message = "USER ";
-		temptest = malloc(snprintf(NULL,0,"%s %s", message, globalArgs.username)+1);
-		snprintf(temptest, "%s",message);
-        printf("SendBuffer: %s",temptest);
+        n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
+        recvBuffer[n] = 0;
+        printf("  --  \nR: %s", recvBuffer);
 
+    }
+*/
+    if(globalArgs.active==0){
+	    
+	    
+    	strcpy(sendBuffer, "PASV\r\n");
+		printf("S: %s", sendBuffer);
+    	write(comm_socket, sendBuffer, strlen(globalArgs.username) + 7);
+		
+		n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
+	    recvBuffer[n] = 0;
+	    printf("R: %s", recvBuffer);
+	    
+
+	    //regexp for a hente ut portnr og ip fra server
+	    	
+    }
+	
+
+        
 	print_globalArgs();
 }
