@@ -9,7 +9,6 @@ arne@dahlbjune.no
 void display_version(void){
 	printf("mftp 0.1\n");
 	printf("Writen by Arne Dahl Bjune, arne@dahlbjune.no\n");
-	
 }
 
 void display_help(void){
@@ -19,12 +18,9 @@ void display_help(void){
 	//Skriv inn fullstendig hjelp text
 	printf(" -h, --help     display this help and exit\n");
 	printf(" -v, --version	output version information and exit\n");
-
 }
 
 void print_globalArgs(void){
-
-
 	printf("\n-------------- DEBUG -----------------\n");
 	printf("Filename: %s\n", globalArgs.filename);
 	printf("Hostname: %s\n", globalArgs.hostname);
@@ -50,7 +46,6 @@ int hostname_translation(char * hostname){
 	strcpy(hostname , inet_ntoa(*addr_list[0]) );
 	return 0;
 }
-
 
 int connect_to_server(int portnr){
 	int sockfd = 0, n = 0;
@@ -83,7 +78,7 @@ int connect_to_server(int portnr){
 int authenticate(int comm_socket){
 	
 	char recvBuffer[1024];
-	char sendBuffer[1025];
+	char sendBuffer[1024];
 	int n;
 
     n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
@@ -132,6 +127,57 @@ int authenticate(int comm_socket){
     return 0;
 }
 
+int match_with_regexp (char * expression, char * text, int size, char results[]){
+    regex_t r;
+    int i;
+    regmatch_t m[10];
+
+    regcomp (&r, expression, REG_EXTENDED|REG_NEWLINE);
+	/*
+    int status = regcomp (&r, expression, REG_EXTENDED|REG_NEWLINE); //kopi
+    if (status != 0) {
+    char error_message[MAX_ERROR_MSG];
+    regerror (status, &r, error_message, MAX_ERROR_MSG);
+        printf ("Regex error compiling '%s': %s\n",
+                 expression, error_message);
+        return 1;
+    }
+ 	*/   
+    
+    regexec (&r, text, 10, m, 0);
+
+    for(i = 1; i < 10;i++){
+        if (m[i].rm_so == -1) {
+            break;
+        }
+        memcpy(&results[size*(i-1)],&text[m[i].rm_so],m[i].rm_eo-m[i].rm_so);
+        results[(i-1)*size + m[i].rm_eo-m[i].rm_so] = '\0';
+    }
+    
+      return 0;
+}
+
+int settings_from_file (char *ftpserver){
+	char ipandport[8*15];
+	char user[15];
+	char pass[15];
+	char file[15];
+    char file_regexp[129];
+
+	ftpserver = "ftp://socket:programming@192.168.0.2/cook.pdf";
+	char *testtemp;
+
+	strcpy(file_regexp,"([[:alnum:]]+)\\:\\/\\/([[:alnum:]]+)\\:([[:alnum:]]+)@([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)(\\/[[:print:]]+)");
+
+	match_with_regexp(file_regexp,ftpserver,15,ipandport);
+	memcpy(user,&ipandport[1*15],15);
+	memcpy(pass,&ipandport[2*15],15);
+	memcpy(file,&ipandport[7*15],15);
+	printf("User %s\n", user);
+	//	Trenger medtode for a kopiere til globalArgs, strcpy segfaulter
+
+}
+
 int main(int argc, char *argv[]) {
 
 	int opt = 0;
@@ -143,7 +189,9 @@ int main(int argc, char *argv[]) {
 	char sendBuffer[1024];
 	int n;
 	char *message;
-	char *temptest; 
+	char *temptest;
+    char pasv_regexp[125]; 
+
 
 	//Initializing default values
 	globalArgs.filename = NULL;	
@@ -157,7 +205,7 @@ int main(int argc, char *argv[]) {
 
 	memset(recvBuffer, '0',sizeof(recvBuffer));	
 	memset(sendBuffer, '0',sizeof(sendBuffer));	
-
+	strcpy(pasv_regexp,"[[:digit:]]+[^[:digit:]]+\\(([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\)\\.");
 	
 
 	opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
@@ -200,8 +248,9 @@ int main(int argc, char *argv[]) {
 	}
 
 	hostname_translation(globalArgs.hostname);
-	comm_socket = connect_to_server(globalArgs.portnr);
-    
+	if(comm_socket = connect_to_server(globalArgs.portnr)){
+		printf("Cannont connect to server \n");;
+    }
     if(authenticated = authenticate(comm_socket)){
     	printf("Authentification Failed \n");
     	return -10;
@@ -218,8 +267,12 @@ int main(int argc, char *argv[]) {
     }
 */
     if(globalArgs.active==0){
-	    
-	    
+	    char ipandport[6*4];
+	    char portval1[4];
+	    char portval2[4];
+	    int dataport;
+	 
+
     	strcpy(sendBuffer, "PASV\r\n");
 		printf("S: %s", sendBuffer);
     	write(comm_socket, sendBuffer, strlen(globalArgs.username) + 7);
@@ -228,12 +281,14 @@ int main(int argc, char *argv[]) {
 	    recvBuffer[n] = 0;
 	    printf("R: %s", recvBuffer);
 	    
-
-	    //regexp for a hente ut portnr og ip fra server
-	    	
+	    match_with_regexp(pasv_regexp,recvBuffer,4,ipandport);
+	    memcpy(portval1,&ipandport[4*4],4);
+	    memcpy(portval2,&ipandport[5*4],4);
+	    dataport = atoi(portval1)*256 + atoi(portval2);
+	 	    	
     }
 	
 
-        
+    settings_from_file("testing");
 	print_globalArgs();
 }

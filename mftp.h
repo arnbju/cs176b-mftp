@@ -11,6 +11,7 @@ arne@dahlbjune.no
 #include "sys/socket.h"
 #include "netinet/in.h"
 #include "string.h"
+#include <regex.h>
 
 
 #include <errno.h> 
