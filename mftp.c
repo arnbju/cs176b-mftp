@@ -246,7 +246,11 @@ int main(int argc, char *argv[]) {
 		opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 
 	}
-
+	if(globalArgs.hostname == NULL){
+		printf("No server specified, defaulting to 128.111.68.216\n");
+		globalArgs.hostname = "128.111.68.216";
+	}
+	
 	hostname_translation(globalArgs.hostname);
 	if(comm_socket = connect_to_server(globalArgs.portnr)){
 		printf("Cannont connect to server \n");;
