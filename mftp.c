@@ -83,13 +83,15 @@ int authenticate(int comm_socket){
 
     n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
-    printf("R: %s", recvBuffer);
+    if(globalArgs.logging==1) logToFile(recvBuffer,0);
+    //printf("R: %s", recvBuffer);
     
     if(strncmp(recvBuffer,"220",3)==0){
     	strcpy(sendBuffer, "USER ");
 		strcat(sendBuffer, globalArgs.username);
     	strcat(sendBuffer,"\r\n");
-    	printf("S: %s", sendBuffer);
+    	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+    	//printf("S: %s", sendBuffer);
     	write(comm_socket, sendBuffer, strlen(globalArgs.username) + 7);
 
     }else{
@@ -98,13 +100,15 @@ int authenticate(int comm_socket){
     
     n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
-    printf("R: %s", recvBuffer);
+    if(globalArgs.logging==1) logToFile(recvBuffer,0);
+    //printf("R: %s", recvBuffer);
     
     if(strncmp(recvBuffer,"331",3)==0){
     	strcpy(sendBuffer, "PASS ");
 		strcat(sendBuffer, globalArgs.password);
     	strcat(sendBuffer,"\r\n");
-    	printf("S: %s", sendBuffer);
+    	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+    	//printf("S: %s", sendBuffer);
     	write(comm_socket, sendBuffer, strlen(globalArgs.password) + 7);
 
     }else{
@@ -113,7 +117,8 @@ int authenticate(int comm_socket){
     sleep(1);
     n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
-    printf("R: %s", recvBuffer);
+    if(globalArgs.logging==1) logToFile(recvBuffer,0);
+    //printf("R: %s", recvBuffer);
     
     if(strncmp(recvBuffer,"230",3)==0){
     	
@@ -178,11 +183,173 @@ int settings_from_file (char *ftpserver){
 
 }
 
+void set_type_binary(int socket){
+	char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n;
+
+	strcpy(sendBuffer, "TYPE I\r\n");
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+
+	
+	//printf("S: %s", sendBuffer);
+   	write(socket, sendBuffer, 8);
+		 	
+   	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    if(globalArgs.logging==1) logToFile(recvBuffer,0);
+    //printf("R: %s", recvBuffer);
+
+
+}
+
+void set_type_ascii(int socket){
+	char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n;
+
+	strcpy(sendBuffer, "TYPE A\r\n");
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	//printf("S: %s", sendBuffer);
+   	write(socket, sendBuffer, 8);
+	
+	 	
+   	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    if(globalArgs.logging==1) logToFile(recvBuffer,0);
+    //printf("R: %s", recvBuffer);
+
+
+}
+
+int set_mode_passive(int socket){
+	char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n, dataport;
+    char pasv_regexp[125];
+	char ipandport[6*4];
+	char portval1[4];
+	char portval2[4];
+
+	strcpy(pasv_regexp,"[[:digit:]]+[^[:digit:]]+\\(([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\)\\.");
+
+	strcpy(sendBuffer, "PASV\r\n");
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	//printf("S: %s", sendBuffer);
+	write(socket, sendBuffer, 6);
+	
+	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    if(globalArgs.logging==1) logToFile(recvBuffer, 0);
+   // printf("R: %s", recvBuffer);
+    
+    match_with_regexp(pasv_regexp,recvBuffer,4,ipandport);
+    memcpy(portval1,&ipandport[4*4],4);
+    memcpy(portval2,&ipandport[5*4],4);
+    dataport = atoi(portval1)*256 + atoi(portval2);
+
+    return dataport;
+}
+
+int get_file_from_server(int socket, int port, int sizeAndSocket[]){
+	char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n;
+	char byte_regexp[25]; 
+	char numberOfBytesToRecieve[100];
+
+	strcpy(byte_regexp, "\\(([[:digit:]]+)\\ bytes\\)");
+
+	strcpy(sendBuffer, "RETR ");
+	strcat(sendBuffer, globalArgs.filename);
+	strcat(sendBuffer, "\r\n");
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	//printf("S: %s", sendBuffer);
+	write(socket, sendBuffer, strlen(globalArgs.filename) + 7);
+
+
+ 	sizeAndSocket[0] = connect_to_server(port);
+	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+ 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+    //printf("R: %s", recvBuffer);
+
+
+    match_with_regexp(byte_regexp,recvBuffer,100,numberOfBytesToRecieve);
+
+    sizeAndSocket[1] = atoi(numberOfBytesToRecieve);
+
+    return 0;
+}
+
+
+int save_file_from_server_binary(int socket, int numberOfBytes){
+	int bytesLeft = numberOfBytes;
+	unsigned char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n;
+	FILE *file;
+
+	file = fopen(globalArgs.filename,"w");
+	sleep(1);
+	while(bytesLeft > 0){
+		n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+	    fwrite(recvBuffer, sizeof(recvBuffer[0]), n, file);
+	    bytesLeft = bytesLeft - n;
+
+	}
+    fclose(file);
+    //printf("R: %s", recvBuffer);
+
+}
+
+int save_file_from_server_ascii(int socket, int numberOfBytes){
+	int bytesLeft = numberOfBytes;
+	unsigned char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n;
+	FILE *file;
+
+	file = fopen(globalArgs.filename,"w");
+	sleep(1);
+	while(bytesLeft > 0){
+		n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+	    recvBuffer[n] = 0;
+	    fprintf(file, "%s", recvBuffer);
+	    bytesLeft = bytesLeft - n;
+	}
+    fclose(file);
+    //printf("R: %s", recvBuffer);
+}
+
+int logToFile(char logtext[], int send){
+	char temp[1024 + 6];
+
+	if(send == 1){
+		strcpy(temp,"C->S: ");
+	}else{
+		strcpy(temp,"S->C: ");
+	}
+	strcat(temp,logtext);
+
+	if(!strcmp(globalArgs.logfile,"-")){
+		printf("%s", &temp[0]);
+	}else{
+		
+		FILE *file;	
+		file = fopen(globalArgs.logfile,"a+");
+		fprintf(file, "%s", temp);
+		fclose(file);
+	}
+	return 0;
+	
+}
+
 int main(int argc, char *argv[]) {
 
 	int opt = 0;
 	int longIndex;
-	int comm_socket;
+	int comm_socket, data_socket;
 	int authenticated;
 	char *temp;
 	char recvBuffer[1024];
@@ -190,7 +357,7 @@ int main(int argc, char *argv[]) {
 	int n;
 	char *message;
 	char *temptest;
-    char pasv_regexp[125]; 
+ 
 
 
 	//Initializing default values
@@ -202,11 +369,15 @@ int main(int argc, char *argv[]) {
 	globalArgs.active = 0;		
 	globalArgs.mode = "binary";  	
 	globalArgs.logfile = NULL;
+	globalArgs.logging = 0;
+
+	//default vaules for testing
+	globalArgs.filename = "polarbear.jpg";
+	globalArgs.hostname = "128.111.68.216";
 
 	memset(recvBuffer, '0',sizeof(recvBuffer));	
 	memset(sendBuffer, '0',sizeof(sendBuffer));	
-	strcpy(pasv_regexp,"[[:digit:]]+[^[:digit:]]+\\(([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\)\\.");
-	
+ 
 
 	opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 	while( opt != -1){
@@ -219,6 +390,8 @@ int main(int argc, char *argv[]) {
 				return 0;
 			case 'f':
 				globalArgs.filename = optarg;
+				//temp value for testing
+				globalArgs.filename = "test.txt";
 				break;
 			case 's':
 				globalArgs.hostname = optarg;
@@ -240,20 +413,23 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'l':
 				globalArgs.logfile = optarg;
+				globalArgs.logging = 1;
 				break;
 		}
 		
 		opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 
 	}
-	if(globalArgs.hostname == NULL){
+	if(0){
 		printf("No server specified, defaulting to 128.111.68.216\n");
-		globalArgs.hostname = "128.111.68.216";
+		//globalArgs.hostname = "ftp.ucsb.edu\n";
 	}
+//	printf("Server er : %s\n", globalArgs.hostname);
+	hostname_translation(globalArgs.hostname); //feiler nar adresse ikke er satt fra comandolinje
+//	printf("Hostname funnet\n");
 	
-	hostname_translation(globalArgs.hostname);
-	if(comm_socket = connect_to_server(globalArgs.portnr)){
-		printf("Cannont connect to server \n");;
+	if(!(comm_socket = connect_to_server(globalArgs.portnr))){
+		printf("Can't connect to server \n");;
     }
     if(authenticated = authenticate(comm_socket)){
     	printf("Authentification Failed \n");
@@ -261,38 +437,31 @@ int main(int argc, char *argv[]) {
     }
     
     n = 1;
-/*
-	while ( n > 0){
-        sleep(1);
-        n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
-        recvBuffer[n] = 0;
-        printf("  --  \nR: %s", recvBuffer);
 
-    }
-*/
     if(globalArgs.active==0){
-	    char ipandport[6*4];
-	    char portval1[4];
-	    char portval2[4];
+	    int socketAndSize[2];
 	    int dataport;
+	 	
 	 
-
-    	strcpy(sendBuffer, "PASV\r\n");
-		printf("S: %s", sendBuffer);
-    	write(comm_socket, sendBuffer, strlen(globalArgs.username) + 7);
-		
-		n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
-	    recvBuffer[n] = 0;
-	    printf("R: %s", recvBuffer);
+    	dataport = set_mode_passive(comm_socket);
 	    
-	    match_with_regexp(pasv_regexp,recvBuffer,4,ipandport);
-	    memcpy(portval1,&ipandport[4*4],4);
-	    memcpy(portval2,&ipandport[5*4],4);
-	    dataport = atoi(portval1)*256 + atoi(portval2);
-	 	    	
+		if (globalArgs.mode == "binary"){
+			set_type_binary(comm_socket);
+		}else{
+			set_type_ascii(comm_socket);
+		}
+
+
+		get_file_from_server(comm_socket,dataport,socketAndSize);
+   
+	    
+	 	save_file_from_server_binary(socketAndSize[0],socketAndSize[1]);
+
+
+
     }
 	
 
-    settings_from_file("testing");
+//    settings_from_file("testing");
 	print_globalArgs();
 }

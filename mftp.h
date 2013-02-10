@@ -19,14 +19,15 @@ arne@dahlbjune.no
 #include <arpa/inet.h>
 
 struct globalArgs_t {
-		char *filename;		// -f
-		char *hostname;		// -s
-		int portnr;			// -p
-		char *username;		// -n
-		char *password;		// -P
-		int active;			// -a
-		char *mode;  		// -m 	
-		char *logfile;		// -l
+		char 	*filename;		// -f
+		char 	*hostname;		// -s
+		int 	 portnr;		// -p
+		char 	*username;		// -n
+		char 	*password;		// -P
+		int 	 active;		// -a
+		char 	*mode;  		// -m 	
+		char 	*logfile;		// -l
+		int 	logging;
 		
 } globalArgs;	
 
