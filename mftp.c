@@ -35,7 +35,7 @@ void print_globalArgs(void){
 int hostname_translation(char * hostname){
 	struct hostent *he;
 	struct in_addr **addr_list;
-		
+
 	if ( (he = gethostbyname( hostname ) ) == NULL) {
 		herror("gethostbyname");
 		return 1;
@@ -180,7 +180,6 @@ int settings_from_file (char *ftpserver){
 	memcpy(file,&ipandport[7*15],15);
 	printf("User %s\n", user);
 	//	Trenger medtode for a kopiere til globalArgs, strcpy segfaulter
-
 }
 
 void set_type_binary(int socket){
@@ -199,8 +198,6 @@ void set_type_binary(int socket){
     recvBuffer[n] = 0;
     if(globalArgs.logging==1) logToFile(recvBuffer,0);
     //printf("R: %s", recvBuffer);
-
-
 }
 
 void set_type_ascii(int socket){
@@ -218,8 +215,6 @@ void set_type_ascii(int socket){
     recvBuffer[n] = 0;
     if(globalArgs.logging==1) logToFile(recvBuffer,0);
     //printf("R: %s", recvBuffer);
-
-
 }
 
 int set_mode_passive(int socket){
@@ -250,8 +245,65 @@ int set_mode_passive(int socket){
 
     return dataport;
 }
+int build_port_message(int port, char ip[]){
+	int port1,port2;
+	char ip_regexp[63];
+	char my_ip[4*4];
 
-int get_file_from_server(int socket, int port, int sizeAndSocket[]){
+	strcpy(ip_regexp,"([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)");
+
+	port2 = port % 256;
+    port1 = (port - port2) / 256;
+
+	match_with_regexp(ip_regexp,ip,4,my_ip);
+
+	sprintf(ip, "PORT %s,%s,%s,%s,%d,%d\r\n", &my_ip[0],&my_ip[4],&my_ip[8],&my_ip[12],port1,port2);
+	//	printf("%s\n", ip);
+
+	return 0;
+}
+
+int set_mode_active(int comm_socket){
+	int data_socket, connection_socket, n;
+	struct sockaddr_in client_addr;
+	struct sockaddr_in temp;
+	char hostname[50];
+	
+	char	sendBuffer[1024];
+	char	recvBuffer[1024];
+
+	memset(&client_addr,'0',sizeof(client_addr));
+	client_addr.sin_family = AF_INET;
+	client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+	client_addr.sin_port = htons(0);
+	socklen_t adressLenth = sizeof(client_addr);
+
+	if((data_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        printf("\n Error : Could not create socket \n");
+        return -1;
+    }
+
+    bind(data_socket,(struct sockaddr*)&client_addr,sizeof(client_addr));
+    
+    getsockname(data_socket, (struct sockaddr*)&temp,&adressLenth);
+	gethostname(hostname,sizeof(hostname));
+	hostname_translation(hostname);
+	build_port_message((int) ntohs(temp.sin_port),hostname);
+
+	strcpy(sendBuffer,hostname);
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	write(comm_socket, sendBuffer, strlen(hostname));
+
+	n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    if(globalArgs.logging==1) logToFile(recvBuffer, 0);
+ 
+    listen(data_socket,10);
+
+	return data_socket;
+}
+
+int retrive_and_get_filesize_from_server(int socket){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
@@ -268,7 +320,7 @@ int get_file_from_server(int socket, int port, int sizeAndSocket[]){
 	write(socket, sendBuffer, strlen(globalArgs.filename) + 7);
 
 
- 	sizeAndSocket[0] = connect_to_server(port);
+ 	
 	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
  	if(globalArgs.logging==1) logToFile(recvBuffer,0);
@@ -277,9 +329,7 @@ int get_file_from_server(int socket, int port, int sizeAndSocket[]){
 
     match_with_regexp(byte_regexp,recvBuffer,100,numberOfBytesToRecieve);
 
-    sizeAndSocket[1] = atoi(numberOfBytesToRecieve);
-
-    return 0;
+    return atoi(numberOfBytesToRecieve);
 }
 
 
@@ -291,7 +341,7 @@ int save_file_from_server_binary(int socket, int numberOfBytes){
 	FILE *file;
 
 	file = fopen(globalArgs.filename,"w");
-	sleep(1);
+	sleep(0.1);
 	while(bytesLeft > 0){
 		n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
 	    fwrite(recvBuffer, sizeof(recvBuffer[0]), n, file);
@@ -300,7 +350,6 @@ int save_file_from_server_binary(int socket, int numberOfBytes){
 	}
     fclose(file);
     //printf("R: %s", recvBuffer);
-
 }
 
 int save_file_from_server_ascii(int socket, int numberOfBytes){
@@ -342,7 +391,29 @@ int logToFile(char logtext[], int send){
 		fclose(file);
 	}
 	return 0;
+}
+
+int close_connection(int socket){
+	char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n;
+
+
+	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+ 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+
+
+	strcpy(sendBuffer, "QUIT\r\n");
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	//printf("S: %s", sendBuffer);
+	write(socket, sendBuffer, 6);
 	
+	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+ 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+
+
 }
 
 int main(int argc, char *argv[]) {
@@ -374,6 +445,7 @@ int main(int argc, char *argv[]) {
 	//default vaules for testing
 	globalArgs.filename = "polarbear.jpg";
 	globalArgs.hostname = "128.111.68.216";
+	globalArgs.hostname = "location.dnsdynamic.com";
 
 	memset(recvBuffer, '0',sizeof(recvBuffer));	
 	memset(sendBuffer, '0',sizeof(sendBuffer));	
@@ -391,7 +463,7 @@ int main(int argc, char *argv[]) {
 			case 'f':
 				globalArgs.filename = optarg;
 				//temp value for testing
-				globalArgs.filename = "test.txt";
+				//globalArgs.filename = "test.txt";
 				break;
 			case 's':
 				globalArgs.hostname = optarg;
@@ -440,7 +512,8 @@ int main(int argc, char *argv[]) {
 
     if(globalArgs.active==0){
 	    int socketAndSize[2];
-	    int dataport;
+	    int dataport,size,data_socket;
+
 	 	
 	 
     	dataport = set_mode_passive(comm_socket);
@@ -451,14 +524,37 @@ int main(int argc, char *argv[]) {
 			set_type_ascii(comm_socket);
 		}
 
-
-		get_file_from_server(comm_socket,dataport,socketAndSize);
+		data_socket = connect_to_server(dataport);
+		size = retrive_and_get_filesize_from_server(comm_socket);
    
-	    
-	 	save_file_from_server_binary(socketAndSize[0],socketAndSize[1]);
+		if (globalArgs.mode == "binary"){
+		 	save_file_from_server_binary(data_socket,size);
+		}else{
+		 	save_file_from_server_ascii(data_socket,size);
+		}
+		close_connection(comm_socket);
 
 
+    }else{
+    	int size;
+    	int data_socket = set_mode_active(comm_socket);
+    	int connection_socket;
+		if (globalArgs.mode == "binary"){
+			set_type_binary(comm_socket);
+		}else{
+			set_type_ascii(comm_socket);
+		}
+		
+		size = retrive_and_get_filesize_from_server(comm_socket);
+		
+		connection_socket = accept(data_socket,(struct sockaddr*)NULL, NULL);
 
+		if (globalArgs.mode == "binary"){
+		 	save_file_from_server_binary(connection_socket,size);
+		}else{
+		 	save_file_from_server_ascii(connection_socket,size);
+		}		
+		close_connection(comm_socket);
     }
 	
 
