@@ -6,6 +6,10 @@ arne@dahlbjune.no
 
 #include "mftp.h"
 
+int nthreads = 1;
+struct ftpArgs_t thread_data[1];
+
+
 void display_version(void){
 	printf("mftp 0.1\n");
 	printf("Writen by Arne Dahl Bjune, arne@dahlbjune.no\n");
@@ -20,16 +24,20 @@ void display_help(void){
 	printf(" -v, --version	output version information and exit\n");
 }
 
-void print_globalArgs(void){
+void print_globalArgs(void *structure){
+
+	struct globalArgs_t *gArgs;
+	gArgs = (struct globalArgs_t *)structure;
+
 	printf("\n-------------- DEBUG -----------------\n");
-	printf("Filename: %s\n", globalArgs.filename);
-	printf("Hostname: %s\n", globalArgs.hostname);
-	printf("Portnr: %i\n", globalArgs.portnr);
-	printf("Username: %s\n", globalArgs.username);
-	printf("Password: %s\n", globalArgs.password);
-	printf("Active: %i\n", globalArgs.active);
-	printf("Mode: %s\n", globalArgs.mode);
-	printf("Logfile: %s\n", globalArgs.logfile);
+	printf("Filename: %s\n", gArgs->filename);
+	printf("Hostname: %s\n", gArgs->hostname);
+	printf("Portnr: %i\n", gArgs->portnr);
+	printf("Username: %s\n", gArgs->username);
+	printf("Password: %s\n", gArgs->password);
+	printf("Active: %i\n", gArgs->active);
+	printf("Mode: %s\n", gArgs->mode);
+	printf("Logfile: %s\n", gArgs->logfile);
 }
 
 int hostname_translation(char * hostname){
@@ -47,7 +55,7 @@ int hostname_translation(char * hostname){
 	return 0;
 }
 
-int connect_to_server(int portnr){
+int connect_to_server(int portnr, char *hostname){
 	int sockfd = 0, n = 0;
 	struct sockaddr_in serv_addr;
 
@@ -61,13 +69,13 @@ int connect_to_server(int portnr){
     serv_addr.sin_port = htons(portnr); 
 
 
-    if(inet_pton(AF_INET, globalArgs.hostname, &serv_addr.sin_addr)<=0){
+    if(inet_pton(AF_INET, hostname, &serv_addr.sin_addr)<=0){
         printf("\n inet_pton error occured\n");
         return -1;
     }
 
 	if(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
-       printf("\n Error : Connect Failed to %s on port %i \n",globalArgs.hostname,globalArgs.portnr);
+       printf("\n Error : Connect Failed to %s on port %i \n",hostname,portnr);
        return -1;
     } 
 
@@ -75,7 +83,7 @@ int connect_to_server(int portnr){
 	return sockfd;
 }
 
-int authenticate(int comm_socket){
+int authenticate(int comm_socket,char *username, char *password){
 	
 	char recvBuffer[1024];
 	char sendBuffer[1024];
@@ -88,11 +96,11 @@ int authenticate(int comm_socket){
     
     if(strncmp(recvBuffer,"220",3)==0){
     	strcpy(sendBuffer, "USER ");
-		strcat(sendBuffer, globalArgs.username);
+		strcat(sendBuffer, username);
     	strcat(sendBuffer,"\r\n");
     	if(globalArgs.logging==1) logToFile(sendBuffer,1);
     	//printf("S: %s", sendBuffer);
-    	write(comm_socket, sendBuffer, strlen(globalArgs.username) + 7);
+    	write(comm_socket, sendBuffer, strlen(username) + 7);
 
     }else{
     	return -1;
@@ -105,11 +113,11 @@ int authenticate(int comm_socket){
     
     if(strncmp(recvBuffer,"331",3)==0){
     	strcpy(sendBuffer, "PASS ");
-		strcat(sendBuffer, globalArgs.password);
+		strcat(sendBuffer, password);
     	strcat(sendBuffer,"\r\n");
     	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-    	//printf("S: %s", sendBuffer);
-    	write(comm_socket, sendBuffer, strlen(globalArgs.password) + 7);
+    	
+    	write(comm_socket, sendBuffer, strlen(password) + 7);
 
     }else{
     	return -1;
@@ -303,7 +311,7 @@ int set_mode_active(int comm_socket){
 	return data_socket;
 }
 
-int retrive_and_get_filesize_from_server(int socket){
+int retrive_and_get_filesize_from_server(int socket, char *filename){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
@@ -313,11 +321,11 @@ int retrive_and_get_filesize_from_server(int socket){
 	strcpy(byte_regexp, "\\(([[:digit:]]+)\\ bytes\\)");
 
 	strcpy(sendBuffer, "RETR ");
-	strcat(sendBuffer, globalArgs.filename);
+	strcat(sendBuffer, filename);
 	strcat(sendBuffer, "\r\n");
 	if(globalArgs.logging==1) logToFile(sendBuffer,1);
 	//printf("S: %s", sendBuffer);
-	write(socket, sendBuffer, strlen(globalArgs.filename) + 7);
+	write(socket, sendBuffer, strlen(filename) + 7);
 
 
  	
@@ -333,14 +341,14 @@ int retrive_and_get_filesize_from_server(int socket){
 }
 
 
-int save_file_from_server_binary(int socket, int numberOfBytes){
+int save_file_from_server_binary(int socket, int numberOfBytes, char *filename){
 	int bytesLeft = numberOfBytes;
 	unsigned char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
 	FILE *file;
 
-	file = fopen(globalArgs.filename,"w");
+	file = fopen(filename,"w");
 	sleep(0.1);
 	while(bytesLeft > 0){
 		n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
@@ -352,14 +360,14 @@ int save_file_from_server_binary(int socket, int numberOfBytes){
     //printf("R: %s", recvBuffer);
 }
 
-int save_file_from_server_ascii(int socket, int numberOfBytes){
+int save_file_from_server_ascii(int socket, int numberOfBytes, char *filename){
 	int bytesLeft = numberOfBytes;
 	unsigned char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
 	FILE *file;
 
-	file = fopen(globalArgs.filename,"w");
+	file = fopen(filename,"w");
 	sleep(1);
 	while(bytesLeft > 0){
 		n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
@@ -415,17 +423,97 @@ int close_connection(int socket){
 
 
 }
-
-int main(int argc, char *argv[]) {
-
-	int opt = 0;
-	int longIndex;
-	int comm_socket, data_socket;
-	int authenticated;
-	char *temp;
+int download_with_ftp(void *settings){
+	
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
+	int comm_socket, data_socket;
+	int authenticated;
+	struct ftpArgs_t *ftpArgs;
+	ftpArgs = (struct ftpArgs_t *)settings;
+
+	memset(recvBuffer, '0',sizeof(recvBuffer));	
+	memset(sendBuffer, '0',sizeof(sendBuffer));	
+
+	hostname_translation(ftpArgs->hostname); //feiler nar adresse ikke er satt fra comandolinje
+	
+	if(!(comm_socket = connect_to_server(ftpArgs->portnr,ftpArgs->hostname))){
+		printf("Can't connect to server \n");;
+    }
+    if(authenticated = authenticate(comm_socket, ftpArgs->username, ftpArgs->password)){
+    	printf("Authentification Failed \n");
+    	return -10;
+    }
+    
+    n = 1;
+
+    if(globalArgs.active==0){
+	    int socketAndSize[2];
+	    int dataport,size,data_socket;
+
+	 	
+	 
+    	dataport = set_mode_passive(comm_socket);
+	    
+		if (globalArgs.mode == "binary"){
+			set_type_binary(comm_socket);
+		}else{
+			set_type_ascii(comm_socket);
+		}
+
+		data_socket = connect_to_server(dataport,ftpArgs->hostname);
+		size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
+   
+		if (globalArgs.mode == "binary"){
+		 	save_file_from_server_binary(data_socket,size, ftpArgs->filename);
+		}else{
+		 	save_file_from_server_ascii(data_socket,size, ftpArgs->filename);
+		}
+		close_connection(comm_socket);
+
+
+    }else{
+    	int size;
+    	int data_socket = set_mode_active(comm_socket);
+    	int connection_socket;
+		if (globalArgs.mode == "binary"){
+			set_type_binary(comm_socket);
+		}else{
+			set_type_ascii(comm_socket);
+		}
+		
+		size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
+		
+		connection_socket = accept(data_socket,(struct sockaddr*)NULL, NULL);
+
+		if (globalArgs.mode == "binary"){
+		 	save_file_from_server_binary(connection_socket,size, ftpArgs->filename);
+		}else{
+		 	save_file_from_server_ascii(connection_socket,size, ftpArgs->filename);
+		}		
+		close_connection(comm_socket);
+    }
+
+    return 0;
+}
+
+void fill_thread_data(int i){
+	thread_data[0].filename = globalArgs.filename;
+	thread_data[0].hostname = globalArgs.hostname;
+	thread_data[0].portnr = globalArgs.portnr;
+	thread_data[0].username = globalArgs.username;
+	thread_data[0].password = globalArgs.password;
+	thread_data[0].tid = i;
+}
+
+
+
+int main(int argc, char *argv[]) {
+	int i;
+	int opt = 0;
+	int longIndex;
+	char *temp;
 	char *message;
 	char *temptest;
  
@@ -447,8 +535,6 @@ int main(int argc, char *argv[]) {
 	globalArgs.hostname = "128.111.68.216";
 	globalArgs.hostname = "location.dnsdynamic.com";
 
-	memset(recvBuffer, '0',sizeof(recvBuffer));	
-	memset(sendBuffer, '0',sizeof(sendBuffer));	
  
 
 	opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
@@ -496,68 +582,12 @@ int main(int argc, char *argv[]) {
 		printf("No server specified, defaulting to 128.111.68.216\n");
 		//globalArgs.hostname = "ftp.ucsb.edu\n";
 	}
-//	printf("Server er : %s\n", globalArgs.hostname);
-	hostname_translation(globalArgs.hostname); //feiler nar adresse ikke er satt fra comandolinje
-//	printf("Hostname funnet\n");
 	
-	if(!(comm_socket = connect_to_server(globalArgs.portnr))){
-		printf("Can't connect to server \n");;
-    }
-    if(authenticated = authenticate(comm_socket)){
-    	printf("Authentification Failed \n");
-    	return -10;
-    }
-    
-    n = 1;
-
-    if(globalArgs.active==0){
-	    int socketAndSize[2];
-	    int dataport,size,data_socket;
-
-	 	
-	 
-    	dataport = set_mode_passive(comm_socket);
-	    
-		if (globalArgs.mode == "binary"){
-			set_type_binary(comm_socket);
-		}else{
-			set_type_ascii(comm_socket);
-		}
-
-		data_socket = connect_to_server(dataport);
-		size = retrive_and_get_filesize_from_server(comm_socket);
-   
-		if (globalArgs.mode == "binary"){
-		 	save_file_from_server_binary(data_socket,size);
-		}else{
-		 	save_file_from_server_ascii(data_socket,size);
-		}
-		close_connection(comm_socket);
-
-
-    }else{
-    	int size;
-    	int data_socket = set_mode_active(comm_socket);
-    	int connection_socket;
-		if (globalArgs.mode == "binary"){
-			set_type_binary(comm_socket);
-		}else{
-			set_type_ascii(comm_socket);
-		}
-		
-		size = retrive_and_get_filesize_from_server(comm_socket);
-		
-		connection_socket = accept(data_socket,(struct sockaddr*)NULL, NULL);
-
-		if (globalArgs.mode == "binary"){
-		 	save_file_from_server_binary(connection_socket,size);
-		}else{
-		 	save_file_from_server_ascii(connection_socket,size);
-		}		
-		close_connection(comm_socket);
-    }
+	for (i = 0; i < nthreads; ++i){
+		fill_thread_data(i);
+		download_with_ftp(&thread_data[i]);
+	}
 	
-
 //    settings_from_file("testing");
-	print_globalArgs();
+	print_globalArgs(&globalArgs);
 }

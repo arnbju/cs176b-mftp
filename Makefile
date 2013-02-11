@@ -1,4 +1,4 @@
-mftp: mftp.c
+mftp: mftp.c mftp.h
 	gcc -o mftp mftp.c
 
 clean: 

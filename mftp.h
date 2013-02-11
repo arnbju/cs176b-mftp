@@ -31,6 +31,14 @@ struct globalArgs_t {
 		
 } globalArgs;	
 
+struct ftpArgs_t {
+		char 	*filename;		// -f
+		char 	*hostname;		// -s
+		int 	 portnr;		// -p
+		char 	*username;		// -n
+		char 	*password;		// -P
+		int 	tid;		
+};
 static const char *optString = "hvf:s:p:n:P:am:l:";
 
 static const struct option longOptions[] = {
