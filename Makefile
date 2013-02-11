@@ -1,5 +1,5 @@
-mftp: mftp.c
-	gcc -o mftp mftp.c
+mftp: mftp.c mftp.h
+	gcc -o mftp mftp.c -pthread
 
 clean: 
 	rm *.o

@@ -9,6 +9,7 @@ arne@dahlbjune.no
 #include "stdlib.h"
 #include "getopt.h"
 #include "sys/socket.h"
+#include <sys/types.h>
 #include "netinet/in.h"
 #include "string.h"
 #include <regex.h>
@@ -17,6 +18,7 @@ arne@dahlbjune.no
 #include <errno.h> 
 #include <netdb.h>
 #include <arpa/inet.h>
+#include "pthread.h"
 
 struct globalArgs_t {
 		char 	*filename;		// -f
@@ -28,6 +30,8 @@ struct globalArgs_t {
 		char 	*mode;  		// -m 	
 		char 	*logfile;		// -l
 		int 	logging;
+		int 	tid;
+		int 	nproc;
 		
 } globalArgs;	
 
