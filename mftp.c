@@ -472,7 +472,7 @@ int close_connection(int socket){
  	if(globalArgs.logging==1) logToFile(recvBuffer,0);
 }
 
-int download_with_ftp(void *settings){
+void *download_with_ftp(void *settings){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
@@ -493,7 +493,7 @@ int download_with_ftp(void *settings){
     }
     if(authenticated = authenticate(comm_socket, ftpArgs->username, ftpArgs->password)){
     	printf("Authentification Failed \n");
-    	return -10;
+    	//return -10;
     }
 
     
@@ -638,6 +638,7 @@ int main(int argc, char *argv[]) {
 	
 	globalArgs.swarming = 1;
 	if(globalArgs.swarming){
+		int rc;
 		thread_data[0].tid = 1;
 	    thread_data[0].portnr = 21;
 	    if(i = settings_from_file("swarm.test", &thread_data[0])){
@@ -646,11 +647,17 @@ int main(int argc, char *argv[]) {
 			print_ftpArgs(&thread_data[0]);
 	    
 	    for (i = 0; i < nthreads; ++i){
-		//	fill_thread_data(i);
-			download_with_ftp(&thread_data[i]);
+			//download_with_ftp(&thread_data[i]);
+			rc = pthread_create(&threads[i], NULL, download_with_ftp, &thread_data[i]);
+			if (rc){
+				printf("ERROR; return code from pthread_create() is %d\n", rc);
+				exit(-1);
+			}
 		}
 
 	}else{
+		//	fill_thread_data(i);
+
 		thread_data[0].portnr = globalArgs.portnr;
 		thread_data[0].tid = 0;
 		thread_data[0].filename = globalArgs.filename;
