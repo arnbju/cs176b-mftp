@@ -40,6 +40,20 @@ void print_globalArgs(void *structure){
 	printf("Logfile: %s\n", gArgs->logfile);
 }
 
+void print_ftpArgs(void *structure){
+
+	struct ftpArgs_t *fArgs;
+	fArgs = (struct ftpArgs_t *)structure;
+
+	printf("\n-------------- DEBUG - ftpArgs ----------------\n");
+	printf("Filename: %s\n", fArgs->filename);
+	printf("Hostname: %s\n", fArgs->hostname);
+	printf("Portnr: %i\n", fArgs->portnr);
+	printf("Username: %s\n", fArgs->username);
+	printf("Password: %s\n", fArgs->password);
+	printf("Tid: %d\n", fArgs->tid);
+}
+
 int hostname_translation(char * hostname){
 	struct hostent *he;
 	struct in_addr **addr_list;
@@ -157,7 +171,10 @@ int match_with_regexp (char * expression, char * text, int size, char results[])
     }
  	*/   
     
-    regexec (&r, text, 10, m, 0);
+    i = regexec (&r, text, 10, m, 0);
+    if(i != 0){
+    	return -1;
+    }
 
     for(i = 1; i < 10;i++){
         if (m[i].rm_so == -1) {
@@ -170,24 +187,63 @@ int match_with_regexp (char * expression, char * text, int size, char results[])
       return 0;
 }
 
-int settings_from_file (char *ftpserver){
-	char ipandport[8*15];
-	char user[15];
-	char pass[15];
-	char file[15];
+int settings_from_file (char *filename, void *ftpArgsP){
+	//Takler ikke at swarming file manger brukernav og passord
+
+    int i = 0;
+    int regexp;
+	char *user;
+	char *pass;
+	char *file;
+	char *hostname;
+	char ipandport[7*15];
+    char temp[40];
     char file_regexp[129];
+    char line[100];
 
-	ftpserver = "ftp://socket:programming@192.168.0.2/cook.pdf";
-	char *testtemp;
+	FILE *swarmfile;
+	struct ftpArgs_t *ftpArgs;
+	ftpArgs = (struct ftpArgs_t *)ftpArgsP;
 
-	strcpy(file_regexp,"([[:alnum:]]+)\\:\\/\\/([[:alnum:]]+)\\:([[:alnum:]]+)@([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)(\\/[[:print:]]+)");
-
-	match_with_regexp(file_regexp,ftpserver,15,ipandport);
-	memcpy(user,&ipandport[1*15],15);
-	memcpy(pass,&ipandport[2*15],15);
-	memcpy(file,&ipandport[7*15],15);
-	printf("User %s\n", user);
-	//	Trenger medtode for a kopiere til globalArgs, strcpy segfaulter
+	memset(ipandport,0,sizeof(ipandport));
+	strcpy(file_regexp,"ftp\\:\\/\\/([[:alnum:]]+)\\:([[:alnum:]]+)@([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\/([[:print:]]+)");
+    
+    swarmfile = fopen(filename, "rt");
+    while(fgets(line, 100, swarmfile) != 0){
+    	if(strlen(line)>8){
+	    	
+	    	printf("Total lengde: %d\n", strlen(line));
+			regexp = match_with_regexp(file_regexp,line,15,ipandport);
+			if(regexp != 0){
+				//invalid input
+				return -1;
+			}
+			user = malloc(strlen(&ipandport[0*15]));
+			strcpy(user, &ipandport[0*15]);
+			
+			pass = malloc(strlen(&ipandport[1*15]));
+			strcpy(pass, &ipandport[1*15]);
+			
+			file = malloc(strlen(&ipandport[6*15]));
+			strcpy(file,&ipandport[6*15]);
+			
+			sprintf(temp, "%s.%s.%s.%s",&ipandport[2*15],&ipandport[3*15],&ipandport[4*15],&ipandport[5*15]);
+			hostname = malloc(strlen(temp));
+			strcpy(hostname,temp);
+			
+			ftpArgs->username = user;
+			ftpArgs->password = pass;
+			ftpArgs->hostname = hostname;
+			ftpArgs->filename = file;
+	    	printf("%s\n", line);
+	    	i++;
+    
+    		
+    	}
+    }
+    printf("Total %d lines\n", i);
+  
+	return 0;
 }
 
 void set_type_binary(int socket){
@@ -253,6 +309,7 @@ int set_mode_passive(int socket){
 
     return dataport;
 }
+
 int build_port_message(int port, char ip[]){
 	int port1,port2;
 	char ip_regexp[63];
@@ -340,7 +397,6 @@ int retrive_and_get_filesize_from_server(int socket, char *filename){
     return atoi(numberOfBytesToRecieve);
 }
 
-
 int save_file_from_server_binary(int socket, int numberOfBytes, char *filename){
 	int bytesLeft = numberOfBytes;
 	unsigned char recvBuffer[1024];
@@ -420,11 +476,9 @@ int close_connection(int socket){
 	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
  	if(globalArgs.logging==1) logToFile(recvBuffer,0);
-
-
 }
+
 int download_with_ftp(void *settings){
-	
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
@@ -433,10 +487,12 @@ int download_with_ftp(void *settings){
 	struct ftpArgs_t *ftpArgs;
 	ftpArgs = (struct ftpArgs_t *)settings;
 
+
 	memset(recvBuffer, '0',sizeof(recvBuffer));	
 	memset(sendBuffer, '0',sizeof(sendBuffer));	
 
 	hostname_translation(ftpArgs->hostname); //feiler nar adresse ikke er satt fra comandolinje
+
 	
 	if(!(comm_socket = connect_to_server(ftpArgs->portnr,ftpArgs->hostname))){
 		printf("Can't connect to server \n");;
@@ -445,14 +501,13 @@ int download_with_ftp(void *settings){
     	printf("Authentification Failed \n");
     	return -10;
     }
+
     
     n = 1;
 
     if(globalArgs.active==0){
 	    int socketAndSize[2];
 	    int dataport,size,data_socket;
-
-	 	
 	 
     	dataport = set_mode_passive(comm_socket);
 	    
@@ -466,10 +521,15 @@ int download_with_ftp(void *settings){
 		size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
    
 		if (globalArgs.mode == "binary"){
-		 	save_file_from_server_binary(data_socket,size, ftpArgs->filename);
+			char filtest[50];
+			strcpy(filtest, ftpArgs->password);
+			strcat(filtest, ftpArgs->filename);
+		 	save_file_from_server_binary(data_socket,size, filtest);
 		}else{
 		 	save_file_from_server_ascii(data_socket,size, ftpArgs->filename);
 		}
+	printf("Running download_with_ftp\n");
+
 		close_connection(comm_socket);
 
 
@@ -507,8 +567,6 @@ void fill_thread_data(int i){
 	thread_data[0].tid = i;
 }
 
-
-
 int main(int argc, char *argv[]) {
 	int i;
 	int opt = 0;
@@ -529,13 +587,16 @@ int main(int argc, char *argv[]) {
 	globalArgs.mode = "binary";  	
 	globalArgs.logfile = NULL;
 	globalArgs.logging = 0;
+	globalArgs.swarmfile = NULL;
+	globalArgs.swarming = 0;
 
 	//default vaules for testing
 	globalArgs.filename = "polarbear.jpg";
 	globalArgs.hostname = "128.111.68.216";
 	globalArgs.hostname = "location.dnsdynamic.com";
+	globalArgs.swarming = 1;
 
- 
+ 	memset(thread_data,0,sizeof(thread_data));
 
 	opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 	while( opt != -1){
@@ -548,8 +609,6 @@ int main(int argc, char *argv[]) {
 				return 0;
 			case 'f':
 				globalArgs.filename = optarg;
-				//temp value for testing
-				//globalArgs.filename = "test.txt";
 				break;
 			case 's':
 				globalArgs.hostname = optarg;
@@ -573,21 +632,82 @@ int main(int argc, char *argv[]) {
 				globalArgs.logfile = optarg;
 				globalArgs.logging = 1;
 				break;
+			case 'w':
+				globalArgs.swarming = 1;
+				globalArgs.swarmfile = optarg;
+				break;
 		}
 		
 		opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 
 	}
-	if(0){
-		printf("No server specified, defaulting to 128.111.68.216\n");
-		//globalArgs.hostname = "ftp.ucsb.edu\n";
+	
+	globalArgs.swarming = 1;
+	if(globalArgs.swarming){
+		thread_data[0].tid = 1;
+	    thread_data[0].portnr = 21;
+	    if(i = settings_from_file("swarm.test", &thread_data[0])){
+	    	printf("Invalid input from swarmfile\n");
+	    }
+			print_ftpArgs(&thread_data[0]);
+	    
+	    for (i = 0; i < nthreads; ++i){
+		//	fill_thread_data(i);
+			download_with_ftp(&thread_data[i]);
+		}
+
+	}else{
+		thread_data[0].portnr = globalArgs.portnr;
+		thread_data[0].tid = 0;
+		thread_data[0].filename = globalArgs.filename;
+		thread_data[0].hostname = globalArgs.hostname;
+		thread_data[0].username = globalArgs.username;
+		thread_data[0].password = globalArgs.password;
+		download_with_ftp(&thread_data[0]);
 	}
 	
-	for (i = 0; i < nthreads; ++i){
-		fill_thread_data(i);
-		download_with_ftp(&thread_data[i]);
-	}
 	
-//    settings_from_file("testing");
-	print_globalArgs(&globalArgs);
+    
+
+   // printf("User: %X %X Pass %s File: %s \n", * &thread_data[0].username[0], * &thread_data[0].username[1],thread_data[0].password,thread_data[0].filename);
+   	//fill_thread_data(0);
+    //printf("User %x, %d\n", &thread_data 	[0].username, sizeof(thread_data[0].username));
+	//	thread_data[0].tid = 0;
+	//	skriv_til_struct(&thread_data[0]);
+	//	print_globalArgs(&globalArgs);
+/*
+	if(globalArgs.swarming){
+		char ipandport[7*15];
+    	char file_regexp[129];
+    	char line[100];
+		int regexp;
+		char temp[15];
+		char *hostname;
+		FILE *swarmfile;
+		
+		memset(ipandport,0,sizeof(ipandport));
+		strcpy(file_regexp,"ftp\\:\\/\\/([[:alnum:]]+)\\:([[:alnum:]]+)@([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)(\\/[[:print:]]+)");
+
+
+		swarmfile = fopen(globalArgs.filename, "rt");
+	    while(fgets(line, 100, swarmfile) != 0){
+    		if(strlen(line)>8){
+				regexp = match_with_regexp(file_regexp,line,15,ipandport);
+				if(regexp != 0){
+				//invalid input
+					return -1;
+				}
+				printf("%s\n", &ipandport[2*15]);
+				sprintf(temp, "%s.%s.%s.%s",&ipandport[2*15],&ipandport[3*15],&ipandport[4*15],&ipandport[5*15]);
+				printf("%s\n", temp);
+				//strcpy(hostname,"temp");
+				thread_data[0].hostname = "hostnam";
+
+    		}
+    	}
+
+		print_ftpArgs(&thread_data[0]);
+
+	}	
+*/
 }
