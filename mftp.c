@@ -381,16 +381,11 @@ int retrive_and_get_filesize_from_server(int socket, char *filename){
 	strcat(sendBuffer, filename);
 	strcat(sendBuffer, "\r\n");
 	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	//printf("S: %s", sendBuffer);
 	write(socket, sendBuffer, strlen(filename) + 7);
 
-
- 	
 	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
  	if(globalArgs.logging==1) logToFile(recvBuffer,0);
-    //printf("R: %s", recvBuffer);
-
 
     match_with_regexp(byte_regexp,recvBuffer,100,numberOfBytesToRecieve);
 
@@ -413,7 +408,6 @@ int save_file_from_server_binary(int socket, int numberOfBytes, char *filename){
 
 	}
     fclose(file);
-    //printf("R: %s", recvBuffer);
 }
 
 int save_file_from_server_ascii(int socket, int numberOfBytes, char *filename){
