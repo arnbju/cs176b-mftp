@@ -6,8 +6,10 @@ arne@dahlbjune.no
 
 #include "mftp.h"
 
-int nthreads = 2;
-struct ftpArgs_t thread_data[2];
+int nthreads = 1;
+//struct ftpArgs_t *thread_data;
+struct ftpArgs_t *thread_data;
+
 pthread_mutex_t filelock;
 pthread_mutex_t loglock;
 
@@ -189,6 +191,21 @@ int match_with_regexp (char * expression, char * text, int size, char results[])
       return 0;
 }
 
+int get_number_of_swarming_servers(char *filename){
+   	FILE *swarmfile;
+   	char line[100];
+   	int i = 0;
+
+   	swarmfile = fopen(filename, "rt");
+	while(fgets(line, 100, swarmfile) != 0){
+    	if(strlen(line)>8){
+    		i++;
+    	}
+    }
+  	fclose(swarmfile);
+	return i;
+}
+
 int settings_from_file (char *filename, void *ftpArgsP, int n){
 	//Takler ikke at swarming file manger brukernav og passord
 
@@ -244,7 +261,7 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
     		i++;
     	}
     }
-  
+  	fclose(swarmfile);
 	return 0;
 }
 
@@ -630,13 +647,13 @@ void *download_with_ftp(void *settings){
     return 0;
 }
 
-void fill_thread_data(int i){
+void fill_thread_data(){
+	thread_data[0].portnr = globalArgs.portnr;
+	thread_data[0].tid = 0;
 	thread_data[0].filename = globalArgs.filename;
 	thread_data[0].hostname = globalArgs.hostname;
-	thread_data[0].portnr = globalArgs.portnr;
 	thread_data[0].username = globalArgs.username;
 	thread_data[0].password = globalArgs.password;
-	thread_data[0].tid = i;
 }
 
 int main(int argc, char *argv[]) {
@@ -646,7 +663,8 @@ int main(int argc, char *argv[]) {
 	char *temp;
 	char *message;
 	char *temptest;
-	pthread_t threads[1];
+	pthread_t threads[2];
+	//pthread_t *threads;
 
  
 
@@ -669,8 +687,9 @@ int main(int argc, char *argv[]) {
 	globalArgs.hostname = "128.111.68.216";
 	globalArgs.hostname = "location.dnsdynamic.com";
 	globalArgs.swarming = 1;
+	globalArgs.swarmfile = "swarm.test";
 
- 	memset(thread_data,0,sizeof(thread_data));
+ 	//memset(thread_data,0,sizeof(thread_data));
 
 	opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 	while( opt != -1){
@@ -719,7 +738,13 @@ int main(int argc, char *argv[]) {
 	globalArgs.swarming = 1;
 	if(globalArgs.swarming){
 		int rc;
-		
+		nthreads = get_number_of_swarming_servers(globalArgs.swarmfile);
+		printf("%d Swarming servers\n", nthreads);
+		//nthreads = 1;
+	    
+		//malloc 
+	    thread_data = malloc(sizeof(struct ftpArgs_t) * nthreads);
+	    //threads = malloc(sizeof(struct pthread_t) * nthreads);
 	    for(i = 0; i < nthreads; i++){
 	    	thread_data[i].tid = i;
 	    	if(rc = settings_from_file("swarm.test", &thread_data[i], i)){
@@ -737,14 +762,9 @@ int main(int argc, char *argv[]) {
 		}
 
 	}else{
-		//	fill_thread_data(i);
+		fill_thread_data();
 
-		thread_data[0].portnr = globalArgs.portnr;
-		thread_data[0].tid = 0;
-		thread_data[0].filename = globalArgs.filename;
-		thread_data[0].hostname = globalArgs.hostname;
-		thread_data[0].username = globalArgs.username;
-		thread_data[0].password = globalArgs.password;
+		
 		download_with_ftp(&thread_data[0]);
 	}
 	
