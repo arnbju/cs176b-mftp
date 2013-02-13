@@ -7,8 +7,10 @@ arne@dahlbjune.no
 #include "mftp.h"
 
 int nthreads = 1;
+int turn = 0;
 //struct ftpArgs_t *thread_data;
 struct ftpArgs_t *thread_data;
+FILE *savedfile;
 
 pthread_mutex_t filelock;
 pthread_mutex_t loglock;
@@ -313,13 +315,11 @@ int set_mode_passive(int socket){
 
 	strcpy(sendBuffer, "PASV\r\n");
 	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	//printf("S: %s", sendBuffer);
 	write(socket, sendBuffer, 6);
 	
 	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
     if(globalArgs.logging==1) logToFile(recvBuffer, 0);
-   // printf("R: %s", recvBuffer);
     
     match_with_regexp(pasv_regexp,recvBuffer,4,ipandport);
     memcpy(portval1,&ipandport[4*4],4);
@@ -342,7 +342,6 @@ int build_port_message(int port, char ip[]){
 	match_with_regexp(ip_regexp,ip,4,my_ip);
 
 	sprintf(ip, "PORT %s,%s,%s,%s,%d,%d\r\n", &my_ip[0],&my_ip[4],&my_ip[8],&my_ip[12],port1,port2);
-	//	printf("%s\n", ip);
 
 	return 0;
 }
@@ -459,11 +458,13 @@ int retrive_part_n_from_server(int socket, char *filename, int tid){
 }
 
 int save_file_from_server_binary(int socket, int numberOfBytes, char *filename, int tid){
-	int bytesLeft;
+	int bytesLeft, *bytesWriten;
 	unsigned char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
 	FILE *file;
+	bytesWriten = malloc(sizeof(int)*nthreads);
+	bytesWriten[tid] = 0;
 
 	if(tid == nthreads -1){
 		if(numberOfBytes == (numberOfBytes / nthreads) * nthreads){
@@ -475,21 +476,31 @@ int save_file_from_server_binary(int socket, int numberOfBytes, char *filename, 
 		bytesLeft = numberOfBytes / nthreads;
 
 	}
-	printf("Thread %d downloading %d bytes\n", tid, bytesLeft);
 
-	file = fopen(filename,"a+");
-	fseek(file, (numberOfBytes/nthreads)*tid, SEEK_SET);
 	sleep(0.1);
+
 	while(bytesLeft > 0){
-		n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+		
+		if(bytesLeft > sizeof(recvBuffer) -1){
+			n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+		}else{
+			n = read(socket, recvBuffer, bytesLeft);
+
+		}
+
+
 		pthread_mutex_lock(&filelock);
+		fseek(savedfile, (numberOfBytes/nthreads)*tid + bytesWriten[tid], SEEK_SET);
+	    fwrite(recvBuffer, sizeof(recvBuffer[0]), n, savedfile);
 
-	    fwrite(recvBuffer, sizeof(recvBuffer[0]), n, file);
-	    pthread_mutex_unlock(&filelock);
+		pthread_mutex_unlock(&filelock);
+	   
 	    bytesLeft = bytesLeft - n;
-
+	    bytesWriten[tid] =  bytesWriten[tid] + n;
+	    //pthread_yield();
 	}
-    fclose(file);
+
+	turn++;
 }
 
 int save_file_from_server_ascii(int socket, int numberOfBytes, char *filename){
@@ -663,12 +674,9 @@ int main(int argc, char *argv[]) {
 	char *temp;
 	char *message;
 	char *temptest;
-	pthread_t threads[2];
-	//pthread_t *threads;
-
+//	pthread_t threads[2];
+	pthread_t *threads;
  
-
-
 	//Initializing default values
 	globalArgs.filename = NULL;	
 	globalArgs.hostname = NULL;	
@@ -683,14 +691,9 @@ int main(int argc, char *argv[]) {
 	globalArgs.swarming = 0;
 
 	//default vaules for testing
-	globalArgs.filename = "polarbear.jpg";
 	globalArgs.hostname = "128.111.68.216";
 	globalArgs.hostname = "location.dnsdynamic.com";
-	globalArgs.swarming = 1;
-	globalArgs.swarmfile = "swarm.test";
-
- 	//memset(thread_data,0,sizeof(thread_data));
-
+	
 	opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 	while( opt != -1){
 		switch( opt){
@@ -729,31 +732,35 @@ int main(int argc, char *argv[]) {
 				globalArgs.swarming = 1;
 				globalArgs.swarmfile = optarg;
 				break;
+			case 'd':
+				printf("DEBUG MODE ACTIVATED\n");
+				globalArgs.swarming = 1;
+				globalArgs.swarmfile = "swarm.test";
+				globalArgs.filename = "polarbear.jpg";
+				
+				break;
 		}
 		
 		opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 
 	}
 	
-	globalArgs.swarming = 1;
 	if(globalArgs.swarming){
 		int rc;
 		nthreads = get_number_of_swarming_servers(globalArgs.swarmfile);
-		printf("%d Swarming servers\n", nthreads);
-		//nthreads = 1;
 	    
-		//malloc 
 	    thread_data = malloc(sizeof(struct ftpArgs_t) * nthreads);
-	    //threads = malloc(sizeof(struct pthread_t) * nthreads);
+	    threads = malloc(sizeof(pthread_t) * nthreads);
+
 	    for(i = 0; i < nthreads; i++){
 	    	thread_data[i].tid = i;
 	    	if(rc = settings_from_file("swarm.test", &thread_data[i], i)){
 	    		printf("Invalid input from swarmfile\n");
 	    	}
-			print_ftpArgs(&thread_data[i]);
 	    }
+		savedfile = fopen(thread_data[0].filename,"w");
+
 	    for (i = 0; i < nthreads; ++i){
-			//download_with_ftp(&thread_data[i]);
 			rc = pthread_create(&threads[i], NULL, download_with_ftp, &thread_data[i]);
 			if (rc){
 				printf("ERROR; return code from pthread_create() is %d\n", rc);
@@ -762,12 +769,18 @@ int main(int argc, char *argv[]) {
 		}
 
 	}else{
-		fill_thread_data();
+	    thread_data = malloc(sizeof(struct ftpArgs_t) * nthreads);
 
+		fill_thread_data();
+		savedfile = fopen(thread_data[0].filename,"w");
 		
 		download_with_ftp(&thread_data[0]);
 	}
 	
 	pthread_exit(NULL);
-    
+    fclose(savedfile);
+    free(threads);
+    free(thread_data);
+    return 0;
+	    
 }

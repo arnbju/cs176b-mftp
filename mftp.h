@@ -18,6 +18,7 @@ arne@dahlbjune.no
 #include <errno.h> 
 #include <netdb.h>
 #include <arpa/inet.h>
+#define _MULTI_THREADED
 
 struct globalArgs_t {
 		char 	*filename;		// -f
@@ -43,7 +44,7 @@ struct ftpArgs_t {
 		char 	*password;		// -P
 				
 };
-static const char *optString = "hvf:s:p:n:P:am:l:w:";
+static const char *optString = "hvf:s:p:n:P:am:l:w:d";
 
 static const struct option longOptions[] = {
 	{"help", no_argument, NULL, 'h'},
