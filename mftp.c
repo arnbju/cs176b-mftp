@@ -6,8 +6,10 @@ arne@dahlbjune.no
 
 #include "mftp.h"
 
-int nthreads = 1;
-struct ftpArgs_t thread_data[1];
+int nthreads = 2;
+struct ftpArgs_t thread_data[2];
+pthread_mutex_t filelock;
+pthread_mutex_t loglock;
 
 
 void display_version(void){
@@ -187,7 +189,7 @@ int match_with_regexp (char * expression, char * text, int size, char results[])
       return 0;
 }
 
-int settings_from_file (char *filename, void *ftpArgsP){
+int settings_from_file (char *filename, void *ftpArgsP, int n){
 	//Takler ikke at swarming file manger brukernav og passord
 
     int i = 0;
@@ -211,8 +213,8 @@ int settings_from_file (char *filename, void *ftpArgsP){
     swarmfile = fopen(filename, "rt");
     while(fgets(line, 100, swarmfile) != 0){
     	if(strlen(line)>8){
-	    	
-	    	printf("Total lengde: %d\n", strlen(line));
+	    	if(n == i){
+
 			regexp = match_with_regexp(file_regexp,line,15,ipandport);
 			if(regexp != 0){
 				//invalid input
@@ -235,13 +237,13 @@ int settings_from_file (char *filename, void *ftpArgsP){
 			ftpArgs->password = pass;
 			ftpArgs->hostname = hostname;
 			ftpArgs->filename = file;
-	    	printf("%s\n", line);
-	    	i++;
+			ftpArgs->portnr = globalArgs.portnr;
+	    	
     
-    		
+    		}
+    		i++;
     	}
     }
-    printf("Total %d lines\n", i);
   
 	return 0;
 }
@@ -392,18 +394,81 @@ int retrive_and_get_filesize_from_server(int socket, char *filename){
     return atoi(numberOfBytesToRecieve);
 }
 
-int save_file_from_server_binary(int socket, int numberOfBytes, char *filename){
-	int bytesLeft = numberOfBytes;
+int retrive_part_n_from_server(int socket, char *filename, int tid){
+	char recvBuffer[1024];
+	char sendBuffer[1024];
+	int n;
+	char byte_regexp[25];
+	char filesize[20];
+	char numberOfBytesToRecieve[100];
+	int startposition;
+	int totalsize;
+
+	strcpy(byte_regexp, "\\(([[:digit:]]+)\\ bytes\\)");
+
+	sprintf(sendBuffer, "SIZE %s\r\n",filename);
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	//printf("S: %s", sendBuffer);
+	write(socket, sendBuffer, 7+ strlen(filename));
+	
+	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+    if(globalArgs.logging==1) logToFile(recvBuffer, 0);
+    match_with_regexp("213\\ ([[:digit:]]+)",recvBuffer,20,filesize);
+
+	startposition = tid * (atoi(filesize) /nthreads); 
+	sprintf(sendBuffer,"REST %d\r\n",startposition);
+	
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	write(socket, sendBuffer, strlen(sendBuffer));
+
+	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+ 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+
+	strcpy(sendBuffer, "RETR ");
+	strcat(sendBuffer, filename);
+	strcat(sendBuffer, "\r\n");
+	if(globalArgs.logging==1) logToFile(sendBuffer,1);
+	write(socket, sendBuffer, strlen(filename) + 7);
+
+	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+    recvBuffer[n] = 0;
+ 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+
+    match_with_regexp(byte_regexp,recvBuffer,100,numberOfBytesToRecieve);
+
+    return atoi(filesize);
+}
+
+int save_file_from_server_binary(int socket, int numberOfBytes, char *filename, int tid){
+	int bytesLeft;
 	unsigned char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
 	FILE *file;
 
-	file = fopen(filename,"w");
+	if(tid == nthreads -1){
+		if(numberOfBytes == (numberOfBytes / nthreads) * nthreads){
+			bytesLeft = numberOfBytes / nthreads;
+		}else{
+			bytesLeft = numberOfBytes % (numberOfBytes / nthreads);
+		}
+	}else{
+		bytesLeft = numberOfBytes / nthreads;
+
+	}
+	printf("Thread %d downloading %d bytes\n", tid, bytesLeft);
+
+	file = fopen(filename,"a+");
+	fseek(file, (numberOfBytes/nthreads)*tid, SEEK_SET);
 	sleep(0.1);
 	while(bytesLeft > 0){
 		n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+		pthread_mutex_lock(&filelock);
+
 	    fwrite(recvBuffer, sizeof(recvBuffer[0]), n, file);
+	    pthread_mutex_unlock(&filelock);
 	    bytesLeft = bytesLeft - n;
 
 	}
@@ -445,7 +510,10 @@ int logToFile(char logtext[], int send){
 		
 		FILE *file;	
 		file = fopen(globalArgs.logfile,"a+");
+		pthread_mutex_lock(&loglock);
 		fprintf(file, "%s", temp);
+		pthread_mutex_unlock(&loglock);
+
 		fclose(file);
 	}
 	return 0;
@@ -512,17 +580,23 @@ void *download_with_ftp(void *settings){
 		}
 
 		data_socket = connect_to_server(dataport,ftpArgs->hostname);
-		size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
-   
+		
+		if(ftpArgs->tid==0){
+			size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
+		}else{
+			//size = get_file_size(comm_socket, ftpArgs->filename);
+			size = retrive_part_n_from_server(comm_socket, ftpArgs->filename, ftpArgs->tid);
+			//retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
+		}
+		
 		if (globalArgs.mode == "binary"){
 			char filtest[50];
 			strcpy(filtest, ftpArgs->password);
 			strcat(filtest, ftpArgs->filename);
-		 	save_file_from_server_binary(data_socket,size, filtest);
+		 	save_file_from_server_binary(data_socket,size, ftpArgs->filename, ftpArgs->tid);
 		}else{
 		 	save_file_from_server_ascii(data_socket,size, ftpArgs->filename);
 		}
-	printf("Running download_with_ftp\n");
 
 		close_connection(comm_socket);
 
@@ -537,12 +611,16 @@ void *download_with_ftp(void *settings){
 			set_type_ascii(comm_socket);
 		}
 		
-		size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
-		
+		if(ftpArgs->tid==0){
+			size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
+		}else{
+			size = retrive_part_n_from_server(comm_socket, ftpArgs->filename,ftpArgs->tid);
+
+		}
 		connection_socket = accept(data_socket,(struct sockaddr*)NULL, NULL);
 
 		if (globalArgs.mode == "binary"){
-		 	save_file_from_server_binary(connection_socket,size, ftpArgs->filename);
+		 	save_file_from_server_binary(connection_socket,size, ftpArgs->filename, ftpArgs->tid);
 		}else{
 		 	save_file_from_server_ascii(connection_socket,size, ftpArgs->filename);
 		}		
@@ -568,6 +646,8 @@ int main(int argc, char *argv[]) {
 	char *temp;
 	char *message;
 	char *temptest;
+	pthread_t threads[1];
+
  
 
 
@@ -639,13 +719,14 @@ int main(int argc, char *argv[]) {
 	globalArgs.swarming = 1;
 	if(globalArgs.swarming){
 		int rc;
-		thread_data[0].tid = 1;
-	    thread_data[0].portnr = 21;
-	    if(i = settings_from_file("swarm.test", &thread_data[0])){
-	    	printf("Invalid input from swarmfile\n");
+		
+	    for(i = 0; i < nthreads; i++){
+	    	thread_data[i].tid = i;
+	    	if(rc = settings_from_file("swarm.test", &thread_data[i], i)){
+	    		printf("Invalid input from swarmfile\n");
+	    	}
+			print_ftpArgs(&thread_data[i]);
 	    }
-			print_ftpArgs(&thread_data[0]);
-	    
 	    for (i = 0; i < nthreads; ++i){
 			//download_with_ftp(&thread_data[i]);
 			rc = pthread_create(&threads[i], NULL, download_with_ftp, &thread_data[i]);
@@ -667,7 +748,7 @@ int main(int argc, char *argv[]) {
 		download_with_ftp(&thread_data[0]);
 	}
 	
-	
+	pthread_exit(NULL);
     
 
    // printf("User: %X %X Pass %s File: %s \n", * &thread_data[0].username[0], * &thread_data[0].username[1],thread_data[0].password,thread_data[0].filename);
