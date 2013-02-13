@@ -750,46 +750,4 @@ int main(int argc, char *argv[]) {
 	
 	pthread_exit(NULL);
     
-
-   // printf("User: %X %X Pass %s File: %s \n", * &thread_data[0].username[0], * &thread_data[0].username[1],thread_data[0].password,thread_data[0].filename);
-   	//fill_thread_data(0);
-    //printf("User %x, %d\n", &thread_data 	[0].username, sizeof(thread_data[0].username));
-	//	thread_data[0].tid = 0;
-	//	skriv_til_struct(&thread_data[0]);
-	//	print_globalArgs(&globalArgs);
-/*
-	if(globalArgs.swarming){
-		char ipandport[7*15];
-    	char file_regexp[129];
-    	char line[100];
-		int regexp;
-		char temp[15];
-		char *hostname;
-		FILE *swarmfile;
-		
-		memset(ipandport,0,sizeof(ipandport));
-		strcpy(file_regexp,"ftp\\:\\/\\/([[:alnum:]]+)\\:([[:alnum:]]+)@([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)(\\/[[:print:]]+)");
-
-
-		swarmfile = fopen(globalArgs.filename, "rt");
-	    while(fgets(line, 100, swarmfile) != 0){
-    		if(strlen(line)>8){
-				regexp = match_with_regexp(file_regexp,line,15,ipandport);
-				if(regexp != 0){
-				//invalid input
-					return -1;
-				}
-				printf("%s\n", &ipandport[2*15]);
-				sprintf(temp, "%s.%s.%s.%s",&ipandport[2*15],&ipandport[3*15],&ipandport[4*15],&ipandport[5*15]);
-				printf("%s\n", temp);
-				//strcpy(hostname,"temp");
-				thread_data[0].hostname = "hostnam";
-
-    		}
-    	}
-
-		print_ftpArgs(&thread_data[0]);
-
-	}	
-*/
 }
