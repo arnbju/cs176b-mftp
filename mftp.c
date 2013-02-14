@@ -91,14 +91,18 @@ void print_ftpArgs(void *structure){
 int hostname_translation(char * hostname){
 	struct hostent *he;
 	struct in_addr **addr_list;
-
+	printf("Finner hostname %s\n", hostname);
 	if ( (he = gethostbyname( hostname ) ) == NULL) {
-		printAndDie("Could not find hostname %s\n",2);
+		char *errmsg = malloc(strlen(hostname) + 25);
+		sprintf(errmsg,"Could not find hostname %s\n",hostname);
+		printAndDie(errmsg,2);
 	}
+	printf("Funnet!\n");
 
 	addr_list = (struct in_addr **) he->h_addr_list;
 
 	strcpy(hostname , inet_ntoa(*addr_list[0]) );
+	printf("Fant %s\n", hostname);
 	return 0;
 }
 int check_return_msg(int msg){
@@ -214,7 +218,14 @@ int get_number_of_swarming_servers(char *filename){
    	char line[100];
    	int i = 0;
 
+
    	swarmfile = fopen(filename, "rt");
+   	/*
+    if(swarmfile==NULL){
+    	fprintf(stderr,"Swarmfile not found\n");
+    	exit(6);
+    }
+	*/
 	while(fgets(line, 100, swarmfile) != 0){
     	if(strlen(line)>8){
     		i++;
@@ -250,7 +261,6 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
     strcpy(ip_regexp, "[[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+");
 
     swarmfile = fopen(filename, "rt");
-    printf("Swarmfile: %s\n", swarmfile);
     while(fgets(line, 100, swarmfile) != 0){
     	if(strlen(line)>8){
 	    	if(n == i){
