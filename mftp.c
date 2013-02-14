@@ -7,10 +7,9 @@ arne@dahlbjune.no
 #include "mftp.h"
 
 int nthreads = 1;
-int turn = 0;
-//struct ftpArgs_t *thread_data;
 struct ftpArgs_t *thread_data;
 FILE *savedfile;
+FILE *printlocation;
 
 pthread_mutex_t filelock;
 pthread_mutex_t loglock;
@@ -22,12 +21,31 @@ void display_version(void){
 }
 
 void display_help(void){
-	printf("Usage: mftp [OPTION] \n");
-	printf("Swarming ftp client\n\n");
+	fprintf(printlocation,"Usage: mftp [OPTIONS] \n");
+	fprintf(printlocation,"Swarming ftp client\n\n");
 
 	//Skriv inn fullstendig hjelp text
-	printf(" -h, --help     display this help and exit\n");
-	printf(" -v, --version	output version information and exit\n");
+	fprintf(printlocation,"  -a, --active 		    	forces active mode (default passive)\n");
+	fprintf(printlocation,"  -f, --file [filename]		specifies the filename to download\n");
+	fprintf(printlocation,"  -h, --help        		display this help and exit\n");
+	fprintf(printlocation,"  -l, --logfile [filename] 	logs communication with the server to file, - logs to stdout\n");
+	fprintf(printlocation,"  -m, --mode [mode]   		set mode to ASCII or binary (default binary)\n");
+	fprintf(printlocation,"  -n, --username [username]	specifies the username to use (default anonymous)\n");
+	fprintf(printlocation,"  -p, --port [portnr]		specifies the portnr to use (default 21)\n");
+	fprintf(printlocation,"  -P, --password [password]	specifies the password to use\n");
+	fprintf(printlocation,"  -s, --server [hostname]	specifies the server to use\n");
+	fprintf(printlocation,"  -v, --version	    		output version information and exit\n");
+	fprintf(printlocation,"  -w, --swarm [config file]	enables swarming mode\n");
+	
+	fprintf(printlocation,"\nExit codes:\n");
+	fprintf(printlocation,"  0 	Completed Successfully\n");
+	fprintf(printlocation,"  1 	Invalid command line arguments\n");
+	fprintf(printlocation,"  2 	Invalid hostname\n");
+	fprintf(printlocation,"  3 	Authentification failed\n");
+	fprintf(printlocation,"  4 	Could not connect to server\n");
+
+
+
 }
 
 void print_globalArgs(void *structure){
@@ -35,7 +53,7 @@ void print_globalArgs(void *structure){
 	struct globalArgs_t *gArgs;
 	gArgs = (struct globalArgs_t *)structure;
 
-	printf("\n-------------- DEBUG -----------------\n");
+	printf("\n-------------- DEBUG - globalArgs -----------------\n");
 	printf("Filename: %s\n", gArgs->filename);
 	printf("Hostname: %s\n", gArgs->hostname);
 	printf("Portnr: %i\n", gArgs->portnr);
@@ -65,8 +83,8 @@ int hostname_translation(char * hostname){
 	struct in_addr **addr_list;
 
 	if ( (he = gethostbyname( hostname ) ) == NULL) {
-		herror("gethostbyname");
-		return 1;
+		fprintf(stderr,"Could not find hostname %s\n",hostname);
+		exit(2);
 	}
 
 	addr_list = (struct in_addr **) he->h_addr_list;
@@ -90,20 +108,20 @@ int connect_to_server(int portnr, char *hostname){
 
 
     if(inet_pton(AF_INET, hostname, &serv_addr.sin_addr)<=0){
-        printf("\n inet_pton error occured\n");
-        return -1;
+		fprintf(stderr,"Could not find hostname %s\n",hostname);
+        exit(2);
     }
 
 	if(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
-       printf("\n Error : Connect Failed to %s on port %i \n",hostname,portnr);
-       return -1;
+		fprintf(stderr,"Could not connect to server n");
+		exit(4);
     } 
 
 
 	return sockfd;
 }
 
-int authenticate(int comm_socket,char *username, char *password){
+int authenticate(int comm_socket,char *username, char *password,int tid){
 	
 	char recvBuffer[1024];
 	char sendBuffer[1024];
@@ -111,49 +129,37 @@ int authenticate(int comm_socket,char *username, char *password){
 
     n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer,0);
-    //printf("R: %s", recvBuffer);
+    if(globalArgs.logging==1) logToFileWithTid(recvBuffer,0,tid);
     
     if(strncmp(recvBuffer,"220",3)==0){
-    	strcpy(sendBuffer, "USER ");
-		strcat(sendBuffer, username);
-    	strcat(sendBuffer,"\r\n");
-    	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-    	//printf("S: %s", sendBuffer);
-    	write(comm_socket, sendBuffer, strlen(username) + 7);
+
+		sprintf(sendBuffer,"USER %s\r\n",username);
+		sendAndRecieve(comm_socket, tid, sendBuffer, recvBuffer);
+    	
 
     }else{
-    	return -1;
+    	fprintf(stderr, "Authentification Failed\n");
+    	exit(3);
     }
     
-    n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer,0);
-    //printf("R: %s", recvBuffer);
     
     if(strncmp(recvBuffer,"331",3)==0){
-    	strcpy(sendBuffer, "PASS ");
-		strcat(sendBuffer, password);
-    	strcat(sendBuffer,"\r\n");
-    	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-    	
-    	write(comm_socket, sendBuffer, strlen(password) + 7);
+    	sprintf(sendBuffer,"PASS %s\r\n",password);
+		sendAndRecieve(comm_socket, tid, sendBuffer, recvBuffer);
 
     }else{
-    	return -1;
+    	fprintf(stderr, "Authentification Failed\n");
+    	exit(3);
     }
-    sleep(1);
-    n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer,0);
-    //printf("R: %s", recvBuffer);
     
+        
     if(strncmp(recvBuffer,"230",3)==0){
     	
     	return 0;
 
     }else{
-    	return -1;
+    	fprintf(stderr, "Authentification Failed\n");
+    	exit(3);
     }
     
     
@@ -166,16 +172,6 @@ int match_with_regexp (char * expression, char * text, int size, char results[])
     regmatch_t m[10];
 
     regcomp (&r, expression, REG_EXTENDED|REG_NEWLINE);
-	/*
-    int status = regcomp (&r, expression, REG_EXTENDED|REG_NEWLINE); //kopi
-    if (status != 0) {
-    char error_message[MAX_ERROR_MSG];
-    regerror (status, &r, error_message, MAX_ERROR_MSG);
-        printf ("Regex error compiling '%s': %s\n",
-                 expression, error_message);
-        return 1;
-    }
- 	*/   
     
     i = regexec (&r, text, 10, m, 0);
     if(i != 0){
@@ -236,7 +232,6 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
 
 			regexp = match_with_regexp(file_regexp,line,15,ipandport);
 			if(regexp != 0){
-				//invalid input
 				return -1;
 			}
 			user = malloc(strlen(&ipandport[0*15]));
@@ -257,7 +252,6 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
 			ftpArgs->hostname = hostname;
 			ftpArgs->filename = file;
 			ftpArgs->portnr = globalArgs.portnr;
-	    	
     
     		}
     		i++;
@@ -267,42 +261,25 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
 	return 0;
 }
 
-void set_type_binary(int socket){
+void set_type_binary(int socket,int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
 
 	strcpy(sendBuffer, "TYPE I\r\n");
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-
-	
-	//printf("S: %s", sendBuffer);
-   	write(socket, sendBuffer, 8);
-		 	
-   	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer,0);
-    //printf("R: %s", recvBuffer);
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
 }
 
-void set_type_ascii(int socket){
+void set_type_ascii(int socket,int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
 
 	strcpy(sendBuffer, "TYPE A\r\n");
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	//printf("S: %s", sendBuffer);
-   	write(socket, sendBuffer, 8);
-	
-	 	
-   	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer,0);
-    //printf("R: %s", recvBuffer);
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
 }
 
-int set_mode_passive(int socket){
+int set_mode_passive(int socket, int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n, dataport;
@@ -314,13 +291,8 @@ int set_mode_passive(int socket){
 	strcpy(pasv_regexp,"[[:digit:]]+[^[:digit:]]+\\(([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\,([[:digit:]]+)\\)\\.");
 
 	strcpy(sendBuffer, "PASV\r\n");
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	write(socket, sendBuffer, 6);
-	
-	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer, 0);
-    
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
+
     match_with_regexp(pasv_regexp,recvBuffer,4,ipandport);
     memcpy(portval1,&ipandport[4*4],4);
     memcpy(portval2,&ipandport[5*4],4);
@@ -346,13 +318,12 @@ int build_port_message(int port, char ip[]){
 	return 0;
 }
 
-int set_mode_active(int comm_socket){
+int set_mode_active(int comm_socket, int tid){
 	int data_socket, connection_socket, n;
 	struct sockaddr_in client_addr;
 	struct sockaddr_in temp;
 	char hostname[50];
 	
-	char	sendBuffer[1024];
 	char	recvBuffer[1024];
 
 	memset(&client_addr,'0',sizeof(client_addr));
@@ -363,7 +334,7 @@ int set_mode_active(int comm_socket){
 
 	if((data_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         printf("\n Error : Could not create socket \n");
-        return -1;
+        exit(-1);
     }
 
     bind(data_socket,(struct sockaddr*)&client_addr,sizeof(client_addr));
@@ -373,20 +344,15 @@ int set_mode_active(int comm_socket){
 	hostname_translation(hostname);
 	build_port_message((int) ntohs(temp.sin_port),hostname);
 
-	strcpy(sendBuffer,hostname);
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	write(comm_socket, sendBuffer, strlen(hostname));
+	sendAndRecieve(comm_socket, tid, hostname, recvBuffer);
 
-	n = read(comm_socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer, 0);
- 
+
     listen(data_socket,10);
 
 	return data_socket;
 }
 
-int retrive_and_get_filesize_from_server(int socket, char *filename){
+int retrive_and_get_filesize_from_server(int socket, char *filename, int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
@@ -398,12 +364,7 @@ int retrive_and_get_filesize_from_server(int socket, char *filename){
 	strcpy(sendBuffer, "RETR ");
 	strcat(sendBuffer, filename);
 	strcat(sendBuffer, "\r\n");
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	write(socket, sendBuffer, strlen(filename) + 7);
-
-	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
- 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
 
     match_with_regexp(byte_regexp,recvBuffer,100,numberOfBytesToRecieve);
 
@@ -423,35 +384,15 @@ int retrive_part_n_from_server(int socket, char *filename, int tid){
 	strcpy(byte_regexp, "\\(([[:digit:]]+)\\ bytes\\)");
 
 	sprintf(sendBuffer, "SIZE %s\r\n",filename);
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	//printf("S: %s", sendBuffer);
-	write(socket, sendBuffer, 7+ strlen(filename));
-	
-	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
-    if(globalArgs.logging==1) logToFile(recvBuffer, 0);
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
     match_with_regexp("213\\ ([[:digit:]]+)",recvBuffer,20,filesize);
 
 	startposition = tid * (atoi(filesize) /nthreads); 
 	sprintf(sendBuffer,"REST %d\r\n",startposition);
-	
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	write(socket, sendBuffer, strlen(sendBuffer));
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
 
-	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
- 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
-
-	strcpy(sendBuffer, "RETR ");
-	strcat(sendBuffer, filename);
-	strcat(sendBuffer, "\r\n");
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	write(socket, sendBuffer, strlen(filename) + 7);
-
-	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
-    recvBuffer[n] = 0;
- 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
-
+	sprintf(sendBuffer,"RETR %s\r\n",filename);
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
     match_with_regexp(byte_regexp,recvBuffer,100,numberOfBytesToRecieve);
 
     return atoi(filesize);
@@ -480,16 +421,15 @@ int save_file_from_server_binary(int socket, int numberOfBytes, char *filename, 
 	sleep(0.1);
 
 	while(bytesLeft > 0){
-		
+
 		if(bytesLeft > sizeof(recvBuffer) -1){
 			n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
 		}else{
 			n = read(socket, recvBuffer, bytesLeft);
-
 		}
 
-
 		pthread_mutex_lock(&filelock);
+
 		fseek(savedfile, (numberOfBytes/nthreads)*tid + bytesWriten[tid], SEEK_SET);
 	    fwrite(recvBuffer, sizeof(recvBuffer[0]), n, savedfile);
 
@@ -497,10 +437,8 @@ int save_file_from_server_binary(int socket, int numberOfBytes, char *filename, 
 	   
 	    bytesLeft = bytesLeft - n;
 	    bytesWriten[tid] =  bytesWriten[tid] + n;
-	    //pthread_yield();
 	}
 
-	turn++;
 }
 
 int save_file_from_server_ascii(int socket, int numberOfBytes, char *filename){
@@ -519,23 +457,28 @@ int save_file_from_server_ascii(int socket, int numberOfBytes, char *filename){
 	    bytesLeft = bytesLeft - n;
 	}
     fclose(file);
-    //printf("R: %s", recvBuffer);
 }
 
-int logToFile(char logtext[], int send){
-	char temp[1024 + 6];
+int logToFileWithTid(char logtext[], int send, int tid){
+	char temp[1024 + 14];
 
-	if(send == 1){
-		strcpy(temp,"C->S: ");
+	if(globalArgs.swarming == 1){
+		if(send == 1){
+			sprintf(temp,"Tid: %i C->S: %s",tid, logtext);
+		}else{
+			sprintf(temp,"Tid: %i S->C: %s",tid, logtext);
+		}
 	}else{
-		strcpy(temp,"S->C: ");
-	}
-	strcat(temp,logtext);
+		if(send == 1){
+			sprintf(temp,"C->S: %s", logtext);
+		}else{
+			sprintf(temp,"S->C: %s", logtext);
+		}
 
+	}
 	if(!strcmp(globalArgs.logfile,"-")){
 		printf("%s", &temp[0]);
 	}else{
-		
 		FILE *file;	
 		file = fopen(globalArgs.logfile,"a+");
 		pthread_mutex_lock(&loglock);
@@ -547,7 +490,7 @@ int logToFile(char logtext[], int send){
 	return 0;
 }
 
-int close_connection(int socket){
+int close_connection(int socket, int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
@@ -555,28 +498,31 @@ int close_connection(int socket){
 
 	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
     recvBuffer[n] = 0;
- 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+ 	if(globalArgs.logging==1) logToFileWithTid(recvBuffer,0,tid);
 
 
 	strcpy(sendBuffer, "QUIT\r\n");
-	if(globalArgs.logging==1) logToFile(sendBuffer,1);
-	//printf("S: %s", sendBuffer);
-	write(socket, sendBuffer, 6);
+	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
 	
-	n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
+}
+
+int sendAndRecieve(int socket, int tid, char *sendBuffer, char *recvBuffer){
+	int n;
+	if(globalArgs.logging==1) logToFileWithTid(sendBuffer,1,tid);
+	write(socket, sendBuffer, strlen(sendBuffer));
+	
+	n = read(socket, recvBuffer, 1024-1);
     recvBuffer[n] = 0;
- 	if(globalArgs.logging==1) logToFile(recvBuffer,0);
+ 	if(globalArgs.logging==1) logToFileWithTid(recvBuffer,0,tid);
 }
 
 void *download_with_ftp(void *settings){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
-	int n;
 	int comm_socket, data_socket;
 	int authenticated;
 	struct ftpArgs_t *ftpArgs;
 	ftpArgs = (struct ftpArgs_t *)settings;
-
 
 	memset(recvBuffer, '0',sizeof(recvBuffer));	
 	memset(sendBuffer, '0',sizeof(sendBuffer));	
@@ -587,60 +533,51 @@ void *download_with_ftp(void *settings){
 	if(!(comm_socket = connect_to_server(ftpArgs->portnr,ftpArgs->hostname))){
 		printf("Can't connect to server \n");;
     }
-    if(authenticated = authenticate(comm_socket, ftpArgs->username, ftpArgs->password)){
+    if(authenticated = authenticate(comm_socket, ftpArgs->username, ftpArgs->password,ftpArgs->tid)){
     	printf("Authentification Failed \n");
-    	//return -10;
     }
-
     
-    n = 1;
 
     if(globalArgs.active==0){
-	    int socketAndSize[2];
 	    int dataport,size,data_socket;
 	 
-    	dataport = set_mode_passive(comm_socket);
+    	dataport = set_mode_passive(comm_socket,ftpArgs->tid);
 	    
 		if (globalArgs.mode == "binary"){
-			set_type_binary(comm_socket);
+			set_type_binary(comm_socket,ftpArgs->tid);
 		}else{
-			set_type_ascii(comm_socket);
+			set_type_ascii(comm_socket,ftpArgs->tid);
 		}
 
 		data_socket = connect_to_server(dataport,ftpArgs->hostname);
 		
 		if(ftpArgs->tid==0){
-			size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
+			size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename,ftpArgs->tid);
 		}else{
-			//size = get_file_size(comm_socket, ftpArgs->filename);
 			size = retrive_part_n_from_server(comm_socket, ftpArgs->filename, ftpArgs->tid);
-			//retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
 		}
 		
 		if (globalArgs.mode == "binary"){
-			char filtest[50];
-			strcpy(filtest, ftpArgs->password);
-			strcat(filtest, ftpArgs->filename);
 		 	save_file_from_server_binary(data_socket,size, ftpArgs->filename, ftpArgs->tid);
 		}else{
 		 	save_file_from_server_ascii(data_socket,size, ftpArgs->filename);
 		}
 
-		close_connection(comm_socket);
+		close_connection(comm_socket, ftpArgs->tid);
 
 
     }else{
     	int size;
-    	int data_socket = set_mode_active(comm_socket);
+    	int data_socket = set_mode_active(comm_socket,ftpArgs->tid);
     	int connection_socket;
 		if (globalArgs.mode == "binary"){
-			set_type_binary(comm_socket);
+			set_type_binary(comm_socket,ftpArgs->tid);
 		}else{
-			set_type_ascii(comm_socket);
+			set_type_ascii(comm_socket,ftpArgs->tid);
 		}
 		
 		if(ftpArgs->tid==0){
-			size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename);
+			size = retrive_and_get_filesize_from_server(comm_socket, ftpArgs->filename,ftpArgs->tid);
 		}else{
 			size = retrive_part_n_from_server(comm_socket, ftpArgs->filename,ftpArgs->tid);
 
@@ -651,8 +588,8 @@ void *download_with_ftp(void *settings){
 		 	save_file_from_server_binary(connection_socket,size, ftpArgs->filename, ftpArgs->tid);
 		}else{
 		 	save_file_from_server_ascii(connection_socket,size, ftpArgs->filename);
-		}		
-		close_connection(comm_socket);
+		}
+		close_connection(comm_socket,ftpArgs->tid);
     }
 
     return 0;
@@ -691,8 +628,8 @@ int main(int argc, char *argv[]) {
 	globalArgs.swarming = 0;
 
 	//default vaules for testing
-	globalArgs.hostname = "128.111.68.216";
-	globalArgs.hostname = "location.dnsdynamic.com";
+	//globalArgs.hostname = "128.111.68.216";
+	//globalArgs.hostname = "location.dnsdynamic.com";
 	
 	opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 	while( opt != -1){
@@ -701,6 +638,7 @@ int main(int argc, char *argv[]) {
 				display_version();
 				return 0;
 			case 'h':
+				printlocation = stdout;
 				display_help();
 				return 0;
 			case 'f':
@@ -722,7 +660,19 @@ int main(int argc, char *argv[]) {
 				globalArgs.active = 1;
 				break;
 			case 'm':
-				globalArgs.mode = optarg;
+				if(!strcmp(optarg,"binary")){
+					globalArgs.mode = optarg;
+				}else if(!strcmp(optarg,"BINARY")){
+					globalArgs.mode = "binary";
+				}else if(!strcmp(optarg,"ASCII")){
+					globalArgs.mode = optarg;
+				}else if(!strcmp(optarg,"ascii")){
+					globalArgs.mode = "ASCII";
+				}
+				else{
+					fprintf(stderr, "Invalid mode, choose ASCII or binary\n");
+					exit(1);
+				}
 				break;
 			case 'l':
 				globalArgs.logfile = optarg;
@@ -737,14 +687,30 @@ int main(int argc, char *argv[]) {
 				globalArgs.swarming = 1;
 				globalArgs.swarmfile = "swarm.test";
 				globalArgs.filename = "polarbear.jpg";
-				
+				globalArgs.hostname = "128.111.68.216";
 				break;
+			case '?':
+				printlocation = stderr;
+				display_help();
+				exit(1);
 		}
 		
 		opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 
 	}
+	if(globalArgs.filename == NULL){
+		fprintf(stderr,"Invalid Commandline options,\nat minimum filename and server has to be specified\n");
+		
+		exit(1);
+	}else if(globalArgs.hostname == NULL){
+		fprintf(stderr,"Invalid Commandline options,\nat minimum filename and server has to be specified\n");
+		exit(1);
+	}else if(globalArgs.swarming && !strcmp(globalArgs.mode,"ASCII")){
+		fprintf(stderr, "Swarming only available in binary mode\n");
+		exit(100); // endre
+	}
 	
+	//Handeling swarming
 	if(globalArgs.swarming){
 		int rc;
 		nthreads = get_number_of_swarming_servers(globalArgs.swarmfile);
@@ -763,11 +729,11 @@ int main(int argc, char *argv[]) {
 	    for (i = 0; i < nthreads; ++i){
 			rc = pthread_create(&threads[i], NULL, download_with_ftp, &thread_data[i]);
 			if (rc){
-				printf("ERROR; return code from pthread_create() is %d\n", rc);
+				fprintf(stderr,"Error, could not create threads\n");
 				exit(-1);
 			}
 		}
-
+	//Non swarming download
 	}else{
 	    thread_data = malloc(sizeof(struct ftpArgs_t) * nthreads);
 
