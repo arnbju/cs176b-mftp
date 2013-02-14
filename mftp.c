@@ -113,7 +113,7 @@ int connect_to_server(int portnr, char *hostname){
     }
 
 	if(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
-		fprintf(stderr,"Could not connect to server n");
+		fprintf(stderr,"Could not connect to server %s on port %s",hostname,ntohs(serv_addr.sin_port));
 		exit(4);
     } 
 
@@ -398,10 +398,11 @@ int retrive_part_n_from_server(int socket, char *filename, int tid){
     return atoi(filesize);
 }
 
-int save_file_from_server_binary(int socket, int numberOfBytes, char *filename, int tid){
+int save_file_from_server_binary(int comm_socket,int socket, int numberOfBytes, char *filename, int tid){
 	int bytesLeft, *bytesWriten;
 	unsigned char recvBuffer[1024];
 	char sendBuffer[1024];
+	char aborBuffer[100];
 	int n;
 	FILE *file;
 	bytesWriten = malloc(sizeof(int)*nthreads);
@@ -438,7 +439,13 @@ int save_file_from_server_binary(int socket, int numberOfBytes, char *filename, 
 	    bytesLeft = bytesLeft - n;
 	    bytesWriten[tid] =  bytesWriten[tid] + n;
 	}
-
+	printf("Thread %d finished after writing %d bytes\n",tid,bytesWriten[tid]);
+	if(tid!=nthreads-1){
+		sprintf(sendBuffer,"ABOR\r\n");
+		sendAndLog(comm_socket,tid,sendBuffer);
+		close(socket);
+		recieveAndLog(comm_socket,tid,aborBuffer);
+	}
 }
 
 int save_file_from_server_ascii(int socket, int numberOfBytes, char *filename){
@@ -515,6 +522,17 @@ int sendAndRecieve(int socket, int tid, char *sendBuffer, char *recvBuffer){
     recvBuffer[n] = 0;
  	if(globalArgs.logging==1) logToFileWithTid(recvBuffer,0,tid);
 }
+int sendAndLog(int socket, int tid, char *sendBuffer){
+	int n;
+	if(globalArgs.logging==1) logToFileWithTid(sendBuffer,1,tid);
+	write(socket, sendBuffer, strlen(sendBuffer));
+	
+}
+int recieveAndLog(int socket, int tid, char *recvBuffer){
+	int n = read(socket, recvBuffer, 1024-1);
+    recvBuffer[n] = 0;
+ 	if(globalArgs.logging==1) logToFileWithTid(recvBuffer,0,tid);
+}
 
 void *download_with_ftp(void *settings){
 	char recvBuffer[1024];
@@ -558,7 +576,7 @@ void *download_with_ftp(void *settings){
 		}
 		
 		if (globalArgs.mode == "binary"){
-		 	save_file_from_server_binary(data_socket,size, ftpArgs->filename, ftpArgs->tid);
+		 	save_file_from_server_binary(comm_socket,data_socket,size, ftpArgs->filename, ftpArgs->tid);
 		}else{
 		 	save_file_from_server_ascii(data_socket,size, ftpArgs->filename);
 		}
@@ -585,7 +603,7 @@ void *download_with_ftp(void *settings){
 		connection_socket = accept(data_socket,(struct sockaddr*)NULL, NULL);
 
 		if (globalArgs.mode == "binary"){
-		 	save_file_from_server_binary(connection_socket,size, ftpArgs->filename, ftpArgs->tid);
+		 	save_file_from_server_binary(comm_socket,connection_socket,size, ftpArgs->filename, ftpArgs->tid);
 		}else{
 		 	save_file_from_server_ascii(connection_socket,size, ftpArgs->filename);
 		}
