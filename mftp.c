@@ -51,6 +51,8 @@ void display_help(void){
 	fprintf(printlocation,"  5 	File not found\n");
 	fprintf(printlocation,"  6 	Invalid swarm file\n");
 
+	fprintf(printlocation,"  10	Generic Error\n");
+
 
 
 
@@ -91,8 +93,7 @@ int hostname_translation(char * hostname){
 	struct in_addr **addr_list;
 
 	if ( (he = gethostbyname( hostname ) ) == NULL) {
-		fprintf(stderr,"Could not find hostname %s\n",hostname);
-		exit(2);
+		printAndDie("Could not find hostname %s\n",2);
 	}
 
 	addr_list = (struct in_addr **) he->h_addr_list;
@@ -123,13 +124,16 @@ int connect_to_server(int portnr, char *hostname){
 
 
     if(inet_pton(AF_INET, hostname, &serv_addr.sin_addr)<=0){
-		fprintf(stderr,"Could not find hostname %s\n",hostname);
-        exit(2);
+		char *errmsg = malloc(strlen(hostname)+24);
+		sprintf(errmsg,"Could not find hostname %s\n",hostname);
+        printAndDie(errmsg,2);
+        
     }
 
 	if(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
-		fprintf(stderr,"Could not connect to server %s on port %s",hostname,ntohs(serv_addr.sin_port));
-		exit(4);
+		char *errmsg = malloc(strlen(hostname)+60);
+		sprintf(errmsg,"Could not connect to server %s on port %s",hostname,ntohs(serv_addr.sin_port));
+		printAndDie(errmsg,4);
     } 
 
 
@@ -246,6 +250,7 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
     strcpy(ip_regexp, "[[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+");
 
     swarmfile = fopen(filename, "rt");
+    printf("Swarmfile: %s\n", swarmfile);
     while(fgets(line, 100, swarmfile) != 0){
     	if(strlen(line)>8){
 	    	if(n == i){
@@ -744,8 +749,7 @@ int main(int argc, char *argv[]) {
 					globalArgs.mode = "ASCII";
 				}
 				else{
-					fprintf(stderr, "Invalid mode, choose ASCII or binary\n");
-					exit(1);
+					printAndDie("Invalid mode, choose ASCII or binary\n",1);
 				}
 				break;
 			case 'l':
@@ -781,7 +785,7 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}else if(globalArgs.swarming && !strcmp(globalArgs.mode,"ASCII")){
 		fprintf(stderr, "Swarming only available in binary mode\n");
-		exit(100); // endre
+		exit(1); 
 	}
 	
 	//Handeling swarming
@@ -803,9 +807,7 @@ int main(int argc, char *argv[]) {
 	    for (i = 0; i < nthreads; ++i){
 			rc = pthread_create(&threads[i], NULL, download_with_ftp, &thread_data[i]);
 			if (rc){
-				fprintf(stderr,"Error, could not create threads\n");
-				unlink(thread_data[0].filename);
-				exit(-1);
+				printAndDie("Error, could not create threads\n",10);
 			}
 		}
 	//Non swarming download
