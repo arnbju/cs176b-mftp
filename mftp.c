@@ -698,11 +698,11 @@ int main(int argc, char *argv[]) {
 		opt = getopt_long(argc, argv, optString,longOptions,&longIndex);
 
 	}
-	if(globalArgs.filename == NULL){
+	if(globalArgs.filename == NULL && !globalArgs.swarming){
 		fprintf(stderr,"Invalid Commandline options,\nat minimum filename and server has to be specified\n");
 		
 		exit(1);
-	}else if(globalArgs.hostname == NULL){
+	}else if(globalArgs.hostname == NULL && !globalArgs.swarming){
 		fprintf(stderr,"Invalid Commandline options,\nat minimum filename and server has to be specified\n");
 		exit(1);
 	}else if(globalArgs.swarming && !strcmp(globalArgs.mode,"ASCII")){
