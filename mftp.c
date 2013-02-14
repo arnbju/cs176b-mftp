@@ -14,6 +14,11 @@ FILE *printlocation;
 pthread_mutex_t filelock;
 pthread_mutex_t loglock;
 
+void printAndDie(char *message, int code){
+	fprintf(stderr, message);
+	unlink(thread_data[0].filename);
+	exit(code);
+}
 
 void display_version(void){
 	printf("mftp 0.1\n");
@@ -43,6 +48,9 @@ void display_help(void){
 	fprintf(printlocation,"  2 	Invalid hostname\n");
 	fprintf(printlocation,"  3 	Authentification failed\n");
 	fprintf(printlocation,"  4 	Could not connect to server\n");
+	fprintf(printlocation,"  5 	File not found\n");
+	fprintf(printlocation,"  6 	Invalid swarm file\n");
+
 
 
 
@@ -92,6 +100,13 @@ int hostname_translation(char * hostname){
 	strcpy(hostname , inet_ntoa(*addr_list[0]) );
 	return 0;
 }
+int check_return_msg(int msg){
+	if(msg == 550){
+		printAndDie("Could not find file\n",5);
+	}
+
+
+}
 
 int connect_to_server(int portnr, char *hostname){
 	int sockfd = 0, n = 0;
@@ -102,7 +117,7 @@ int connect_to_server(int portnr, char *hostname){
         return -1;
     } 
 
-
+ //   printf("Fikk inn %d\n", portnr);
 	serv_addr.sin_family = AF_INET;
     serv_addr.sin_port = htons(portnr); 
 
@@ -174,6 +189,7 @@ int match_with_regexp (char * expression, char * text, int size, char results[])
     regcomp (&r, expression, REG_EXTENDED|REG_NEWLINE);
     
     i = regexec (&r, text, 10, m, 0);
+   // printf("Regex!! %d\n", i);
     if(i != 0){
     	return -1;
     }
@@ -205,7 +221,7 @@ int get_number_of_swarming_servers(char *filename){
 }
 
 int settings_from_file (char *filename, void *ftpArgsP, int n){
-	//Takler ikke at swarming file manger brukernav og passord
+	
 
     int i = 0;
     int regexp;
@@ -213,9 +229,11 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
 	char *pass;
 	char *file;
 	char *hostname;
-	char ipandport[7*15];
+	char ipandport[4*60];
     char temp[40];
-    char file_regexp[129];
+    char ftp_pwd_regexp[75];
+    char ftp_regexp[42];
+    char ip_regexp[63];
     char line[100];
 
 	FILE *swarmfile;
@@ -223,35 +241,56 @@ int settings_from_file (char *filename, void *ftpArgsP, int n){
 	ftpArgs = (struct ftpArgs_t *)ftpArgsP;
 
 	memset(ipandport,0,sizeof(ipandport));
-	strcpy(file_regexp,"ftp\\:\\/\\/([[:alnum:]]+)\\:([[:alnum:]]+)@([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\/([[:print:]]+)");
-    
+	strcpy(ftp_pwd_regexp,"ftp\\:\\/\\/([[:alnum:]]+)\\:([[:print:]]+)@([[:alnum:].]+)\\/([[:print:]]+)");
+	strcpy(ftp_regexp,"ftp\\:\\/\\/([[:alnum:].]+)\\/([[:print:]]+)");
+    strcpy(ip_regexp, "[[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+");
+
     swarmfile = fopen(filename, "rt");
     while(fgets(line, 100, swarmfile) != 0){
     	if(strlen(line)>8){
 	    	if(n == i){
 
-			regexp = match_with_regexp(file_regexp,line,15,ipandport);
+			regexp = match_with_regexp(ftp_pwd_regexp,line,60,ipandport);
 			if(regexp != 0){
-				return -1;
+				regexp = match_with_regexp(ftp_regexp,line,60,ipandport);
+				if(regexp != 0){
+					char *errmsg = malloc(strlen(line) + 19);
+					sprintf(errmsg,"Invalid line in swarmfile: %s",line);
+					printAndDie(errmsg,6);
+				}
+				user = globalArgs.username;
+				pass = globalArgs.password;
+				strcpy(line,&ipandport[0*60]);
+
+				file = malloc(strlen(&ipandport[1*60]));
+				strcpy(file,&ipandport[1*60]);
+
+			}else{
+				user = malloc(strlen(&ipandport[0]));
+				strcpy(user, &ipandport[0]);
+				
+				pass = malloc(strlen(&ipandport[1*60]));
+				strcpy(pass, &ipandport[1*60]);
+
+				file = malloc(strlen(&ipandport[3*60]));
+				strcpy(file,&ipandport[3*60]);
+
+				strcpy(line,&ipandport[2*60]);
 			}
-			user = malloc(strlen(&ipandport[0*15]));
-			strcpy(user, &ipandport[0*15]);
 			
-			pass = malloc(strlen(&ipandport[1*15]));
-			strcpy(pass, &ipandport[1*15]);
+			hostname_translation(line);
+
 			
-			file = malloc(strlen(&ipandport[6*15]));
-			strcpy(file,&ipandport[6*15]);
-			
-			sprintf(temp, "%s.%s.%s.%s",&ipandport[2*15],&ipandport[3*15],&ipandport[4*15],&ipandport[5*15]);
-			hostname = malloc(strlen(temp));
-			strcpy(hostname,temp);
+			hostname = malloc(strlen(line));
+			strcpy(hostname,line);
+			//sprintf(temp, "%s.%s.%s.%s",&ipandport[2*15],&ipandport[3*15],&ipandport[4*15],&ipandport[5*15]);
 			
 			ftpArgs->username = user;
 			ftpArgs->password = pass;
 			ftpArgs->hostname = hostname;
 			ftpArgs->filename = file;
 			ftpArgs->portnr = globalArgs.portnr;
+			//printf("Portnr %d %d\n", globalArgs.portnr,ftpArgs->portnr);
     
     		}
     		i++;
@@ -283,7 +322,7 @@ int set_mode_passive(int socket, int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n, dataport;
-    char pasv_regexp[125];
+    char pasv_regexp[133];
 	char ipandport[6*4];
 	char portval1[4];
 	char portval2[4];
@@ -292,18 +331,16 @@ int set_mode_passive(int socket, int tid){
 
 	strcpy(sendBuffer, "PASV\r\n");
 	sendAndRecieve(socket, tid, sendBuffer, recvBuffer);
-
-    match_with_regexp(pasv_regexp,recvBuffer,4,ipandport);
+    n = match_with_regexp(pasv_regexp,recvBuffer,4,ipandport);
     memcpy(portval1,&ipandport[4*4],4);
     memcpy(portval2,&ipandport[5*4],4);
     dataport = atoi(portval1)*256 + atoi(portval2);
-
     return dataport;
 }
 
 int build_port_message(int port, char ip[]){
 	int port1,port2;
-	char ip_regexp[63];
+	char ip_regexp[65];
 	char my_ip[4*4];
 
 	strcpy(ip_regexp,"([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)\\.([[:digit:]]+)");
@@ -356,7 +393,7 @@ int retrive_and_get_filesize_from_server(int socket, char *filename, int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
-	char byte_regexp[25]; 
+	char byte_regexp[28]; 
 	char numberOfBytesToRecieve[100];
 
 	strcpy(byte_regexp, "\\(([[:digit:]]+)\\ bytes\\)");
@@ -375,7 +412,7 @@ int retrive_part_n_from_server(int socket, char *filename, int tid){
 	char recvBuffer[1024];
 	char sendBuffer[1024];
 	int n;
-	char byte_regexp[25];
+	char byte_regexp[28];
 	char filesize[20];
 	char numberOfBytesToRecieve[100];
 	int startposition;
@@ -409,19 +446,26 @@ int save_file_from_server_binary(int comm_socket,int socket, int numberOfBytes, 
 	bytesWriten[tid] = 0;
 
 	if(tid == nthreads -1){
-		if(numberOfBytes == (numberOfBytes / nthreads) * nthreads){
+		/*if(numberOfBytes == (numberOfBytes / nthreads) * nthreads){
 			bytesLeft = numberOfBytes / nthreads;
-		}else{
-			bytesLeft = numberOfBytes % (numberOfBytes / nthreads);
-		}
+			printf("IF T %d, %d = %d / %d \n",tid, bytesLeft, numberOfBytes, nthreads);
+
+		}else{*/
+			bytesLeft = (numberOfBytes % (numberOfBytes / nthreads)) + numberOfBytes / nthreads;
+			//printf("Else T %d, %d = %d mod %d \n",tid, bytesLeft, numberOfBytes, numberOfBytes /nthreads);
+
+		//}
 	}else{
 		bytesLeft = numberOfBytes / nthreads;
+		//printf("T %d, %d = %d / %d \n",tid, bytesLeft, numberOfBytes, nthreads);
 
 	}
 
-	sleep(0.1);
+	//sleep(1);
+	//printf("Thread %d has %d bytes left\n",tid,bytesLeft );
 
 	while(bytesLeft > 0){
+		
 
 		if(bytesLeft > sizeof(recvBuffer) -1){
 			n = read(socket, recvBuffer, sizeof(recvBuffer)-1);
@@ -432,6 +476,7 @@ int save_file_from_server_binary(int comm_socket,int socket, int numberOfBytes, 
 		pthread_mutex_lock(&filelock);
 
 		fseek(savedfile, (numberOfBytes/nthreads)*tid + bytesWriten[tid], SEEK_SET);
+		//printf("Thread %d writes %d bytes to position %d, %d bytes left\n",tid,n,(numberOfBytes/nthreads)*tid + bytesWriten[tid],bytesLeft );
 	    fwrite(recvBuffer, sizeof(recvBuffer[0]), n, savedfile);
 
 		pthread_mutex_unlock(&filelock);
@@ -440,12 +485,17 @@ int save_file_from_server_binary(int comm_socket,int socket, int numberOfBytes, 
 	    bytesWriten[tid] =  bytesWriten[tid] + n;
 	}
 	printf("Thread %d finished after writing %d bytes\n",tid,bytesWriten[tid]);
+	close(socket);
+	
+	/*
 	if(tid!=nthreads-1){
 		sprintf(sendBuffer,"ABOR\r\n");
 		sendAndLog(comm_socket,tid,sendBuffer);
 		close(socket);
+		sleep(1);
 		recieveAndLog(comm_socket,tid,aborBuffer);
 	}
+	*/
 }
 
 int save_file_from_server_ascii(int socket, int numberOfBytes, char *filename){
@@ -514,13 +564,19 @@ int close_connection(int socket, int tid){
 }
 
 int sendAndRecieve(int socket, int tid, char *sendBuffer, char *recvBuffer){
-	int n;
+	int n,failed;
+	char err[4];
 	if(globalArgs.logging==1) logToFileWithTid(sendBuffer,1,tid);
 	write(socket, sendBuffer, strlen(sendBuffer));
 	
 	n = read(socket, recvBuffer, 1024-1);
     recvBuffer[n] = 0;
  	if(globalArgs.logging==1) logToFileWithTid(recvBuffer,0,tid);
+
+ 	memcpy(err,recvBuffer,3);
+ 	err[4] = 0;
+ 	failed = check_return_msg(atoi(err));
+ 	
 }
 int sendAndLog(int socket, int tid, char *sendBuffer){
 	int n;
@@ -566,7 +622,7 @@ void *download_with_ftp(void *settings){
 		}else{
 			set_type_ascii(comm_socket,ftpArgs->tid);
 		}
-
+	//	printf("Dataport %d, tid %d\n", dataport,ftpArgs->tid);
 		data_socket = connect_to_server(dataport,ftpArgs->hostname);
 		
 		if(ftpArgs->tid==0){
@@ -738,7 +794,7 @@ int main(int argc, char *argv[]) {
 
 	    for(i = 0; i < nthreads; i++){
 	    	thread_data[i].tid = i;
-	    	if(rc = settings_from_file("swarm.test", &thread_data[i], i)){
+	    	if(rc = settings_from_file(globalArgs.swarmfile, &thread_data[i], i)){
 	    		printf("Invalid input from swarmfile\n");
 	    	}
 	    }
@@ -748,6 +804,7 @@ int main(int argc, char *argv[]) {
 			rc = pthread_create(&threads[i], NULL, download_with_ftp, &thread_data[i]);
 			if (rc){
 				fprintf(stderr,"Error, could not create threads\n");
+				unlink(thread_data[0].filename);
 				exit(-1);
 			}
 		}
